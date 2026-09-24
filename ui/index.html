@@ -19,6 +19,10 @@
                 <button class="btn btn-danger-hover" id="btn-remove-server" title="Удалить выбранный сервер">
                     <span class="icon">🗑️</span> Удалить
                 </button>
+                <button class="btn btn-update" id="btn-open-updates" title="Обновление bksh2ray и компонентов">
+                    <span class="icon">🔄</span> Обновления
+                    <span class="update-badge hidden" id="update-badge">!</span>
+                </button>
             </div>
             
             <div class="toolbar-group center-group">
@@ -91,6 +95,9 @@
             <div class="status-item status-proxy-info">
                 127.0.0.1:10809 (SOCKS5: 10808)
             </div>
+            <div class="status-item app-version-tag" id="app-version-tag" title="Версия приложения bksh2ray">
+                v1.2.0
+            </div>
         </div>
     </div>
 
@@ -143,6 +150,47 @@
 
             <div class="modal-actions">
                 <button class="btn btn-secondary" id="btn-close-bypass-footer">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Modal -->
+    <div id="update-modal" class="modal-overlay hidden">
+        <div class="modal-card update-modal-card">
+            <div class="modal-header">
+                <span class="modal-icon">🔄</span>
+                <div class="modal-title-group">
+                    <h3 class="modal-title">Центр обновлений</h3>
+                    <div class="modal-subtitle">Обновление программы bksh2ray, ядер sing-box, Xray и правил маршрутизации из GitHub</div>
+                </div>
+                <button class="btn-close-modal" id="btn-close-update">✕</button>
+            </div>
+            
+            <div class="update-body">
+                <div class="update-toolbar">
+                    <div class="update-toolbar-left">
+                        <button class="btn btn-check" id="btn-check-updates">
+                            <span class="icon" id="check-icon">🔍</span> <span id="check-btn-text">Проверить обновления</span>
+                        </button>
+                        <button class="btn btn-update-all" id="btn-update-all" disabled>
+                            <span class="icon">⚡</span> Обновить всё
+                        </button>
+                    </div>
+                    <div class="update-status-summary" id="update-status-summary">
+                        Нажмите кнопку для проверки версий
+                    </div>
+                </div>
+
+                <div class="components-list" id="components-list">
+                    <!-- Populated dynamically: bksh2ray, sing-box, xray, geo -->
+                </div>
+            </div>
+
+            <div class="modal-actions update-modal-actions">
+                <button class="btn btn-restart-app hidden" id="btn-restart-app">
+                    <span class="icon">🚀</span> Перезапустить bksh2ray
+                </button>
+                <button class="btn btn-secondary" id="btn-close-update-footer">Закрыть</button>
             </div>
         </div>
     </div>

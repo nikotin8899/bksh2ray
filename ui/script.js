@@ -464,11 +464,314 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimeout(toastTimeout);
         toastTimeout = setTimeout(() => {
             toast.classList.add('hidden');
-        }, 3000);
+        }, 3500);
     }
-    
+
+    // --- Updates Modal & Logic ---
+    const btnOpenUpdates = document.getElementById('btn-open-updates');
+    const updateModal = document.getElementById('update-modal');
+    const btnCloseUpdate = document.getElementById('btn-close-update');
+    const btnCloseUpdateFooter = document.getElementById('btn-close-update-footer');
+    const btnCheckUpdates = document.getElementById('btn-check-updates');
+    const btnUpdateAll = document.getElementById('btn-update-all');
+    const updateStatusSummary = document.getElementById('update-status-summary');
+    const componentsList = document.getElementById('components-list');
+    const btnRestartApp = document.getElementById('btn-restart-app');
+    const updateBadge = document.getElementById('update-badge');
+    const checkIcon = document.getElementById('check-icon');
+    const checkBtnText = document.getElementById('check-btn-text');
+
+    let currentComponents = [];
+    let isUpdating = false;
+
+    // Open/Close modal
+    btnOpenUpdates?.addEventListener('click', () => {
+        updateModal.classList.remove('hidden');
+        checkUpdates();
+    });
+
+    btnCloseUpdate?.addEventListener('click', () => {
+        if (!isUpdating) updateModal.classList.add('hidden');
+    });
+
+    btnCloseUpdateFooter?.addEventListener('click', () => {
+        if (!isUpdating) updateModal.classList.add('hidden');
+    });
+
+    btnCheckUpdates?.addEventListener('click', () => {
+        checkUpdates();
+    });
+
+    btnRestartApp?.addEventListener('click', async () => {
+        try {
+            if (window.pywebview?.api?.restart_app) {
+                await window.pywebview.api.restart_app();
+            }
+        } catch (e) {
+            showToast("Ошибка при перезапуске: " + e);
+        }
+    });
+
+    // Check updates
+    async function checkUpdates(silent = false) {
+        if (!window.pywebview?.api?.check_updates) return;
+        if (isUpdating) return;
+
+        if (!silent) {
+            btnCheckUpdates.disabled = true;
+            if (checkIcon) checkIcon.textContent = "⏳";
+            if (checkBtnText) checkBtnText.textContent = "Проверка...";
+            if (updateStatusSummary) updateStatusSummary.textContent = "Запрос версий с GitHub...";
+        }
+
+        try {
+            const res = await window.pywebview.api.check_updates();
+            if (res && res.success && res.components) {
+                if (res.app_version) {
+                    const tag = document.getElementById('app-version-tag');
+                    if (tag) tag.textContent = res.app_version;
+                }
+                currentComponents = res.components;
+                renderComponentCards(currentComponents);
+
+                const outdated = currentComponents.filter(c => c.HasUpdate || c.has_update);
+                if (outdated.length > 0) {
+                    updateBadge.classList.remove('hidden');
+                    btnUpdateAll.disabled = false;
+                    if (updateStatusSummary) {
+                        updateStatusSummary.textContent = `Доступно обновлений: ${outdated.length} из ${currentComponents.length}`;
+                    }
+                } else {
+                    updateBadge.classList.add('hidden');
+                    btnUpdateAll.disabled = true;
+                    if (updateStatusSummary) {
+                        updateStatusSummary.textContent = "Все компоненты актуальны ✔";
+                    }
+                }
+            } else if (!silent) {
+                if (updateStatusSummary) updateStatusSummary.textContent = "Не удалось проверить обновления";
+            }
+        } catch (e) {
+            console.error("Check updates error:", e);
+            if (!silent && updateStatusSummary) {
+                updateStatusSummary.textContent = "Ошибка проверки обновлений";
+            }
+        } finally {
+            if (!silent) {
+                btnCheckUpdates.disabled = false;
+                if (checkIcon) checkIcon.textContent = "🔍";
+                if (checkBtnText) checkBtnText.textContent = "Проверить обновления";
+            }
+        }
+    }
+
+    // Render component list
+    function renderComponentCards(comps) {
+        if (!componentsList) return;
+        componentsList.innerHTML = '';
+
+        const iconMap = {
+            'bksh2ray': '🚀',
+            'sing-box': '📦',
+            'xray': '⚡',
+            'geo': '🌐'
+        };
+
+        comps.forEach(c => {
+            const id = c.Id || c.id;
+            const title = c.Title || c.title;
+            const desc = c.Description || c.description || '';
+            const source = c.Source || c.source || '';
+            const curVer = c.CurrentVersion || c.current_version || 'Неизвестно';
+            const latVer = c.LatestVersion || c.latest_version || curVer;
+            const hasUpdate = (c.HasUpdate !== undefined) ? c.HasUpdate : !!c.has_update;
+            const icon = iconMap[id] || '⚙️';
+
+            const card = document.createElement('div');
+            card.className = `component-card ${hasUpdate ? 'has-update-border' : ''}`;
+            card.id = `comp-card-${id}`;
+
+            let badgeHtml = '';
+            let btnActionHtml = '';
+
+            if (hasUpdate) {
+                badgeHtml = `<span class="badge-version-status badge-update-ready">★ Есть обновление</span>`;
+                btnActionHtml = `<button class="btn-comp-update" data-comp="${id}">Обновить</button>`;
+            } else {
+                badgeHtml = `<span class="badge-version-status badge-ok">✔ Актуально</span>`;
+                btnActionHtml = `<button class="btn-comp-update btn-secondary" style="font-size:0.75rem; padding: 5px 10px;" data-comp="${id}">Переустановить</button>`;
+            }
+
+            card.innerHTML = `
+                <div class="comp-main-row">
+                    <div class="comp-header-left">
+                        <div class="comp-icon-box">${icon}</div>
+                        <div class="comp-meta">
+                            <div class="comp-title-row">
+                                <span class="comp-title">${title}</span>
+                                <span class="comp-source">${source}</span>
+                            </div>
+                            <div class="comp-desc">${desc}</div>
+                        </div>
+                    </div>
+                    <div class="comp-header-right">
+                        ${badgeHtml}
+                        <div id="btn-wrapper-${id}">${btnActionHtml}</div>
+                    </div>
+                </div>
+
+                <div class="comp-versions-row">
+                    <div class="ver-item">
+                        <span class="ver-label">Текущая версия:</span>
+                        <span class="ver-val" id="ver-cur-${id}">${curVer}</span>
+                    </div>
+                    <div class="ver-item">
+                        <span class="ver-label">В репозитории GitHub:</span>
+                        <span class="ver-val" id="ver-lat-${id}">${latVer}</span>
+                    </div>
+                </div>
+
+                <div class="comp-progress-box hidden" id="progress-box-${id}">
+                    <div class="comp-progress-bar-bg">
+                        <div class="comp-progress-bar-fill" id="progress-fill-${id}"></div>
+                    </div>
+                    <div class="comp-progress-text" id="progress-text-${id}">Подготовка...</div>
+                </div>
+            `;
+
+            // Action button listener
+            const updateBtn = card.querySelector(`[data-comp="${id}"]`);
+            updateBtn?.addEventListener('click', () => {
+                triggerUpdateComponent(id);
+            });
+
+            componentsList.appendChild(card);
+        });
+    }
+
+    // Update single component
+    async function triggerUpdateComponent(compName) {
+        if (isUpdating) return;
+        if (!window.pywebview?.api?.update_component) return;
+
+        isUpdating = true;
+        setUpdateUiBusy(true);
+
+        const progressBox = document.getElementById(`progress-box-${compName}`);
+        const progressFill = document.getElementById(`progress-fill-${compName}`);
+        const progressText = document.getElementById(`progress-text-${compName}`);
+
+        if (progressBox) progressBox.classList.remove('hidden');
+        if (progressFill) progressFill.style.width = '5%';
+        if (progressText) progressText.textContent = 'Инициализация загрузки...';
+
+        try {
+            const res = await window.pywebview.api.update_component(compName);
+            if (res && res.success) {
+                if (progressFill) progressFill.style.width = '100%';
+                if (progressText) progressText.textContent = 'Завершено успешно ✔';
+
+                if (res.need_restart) {
+                    btnRestartApp?.classList.remove('hidden');
+                    showToast("bksh2ray обновлен! Нажмите «Перезапустить», чтобы применить обновление.");
+                } else {
+                    showToast(res.message || "Компонент успешно обновлен!");
+                }
+            } else {
+                if (progressText) progressText.textContent = `Ошибка: ${res ? res.error : 'Неизвестный сбой'}`;
+                showToast(`Ошибка обновления ${compName}: ${res ? res.error : 'Сбой'}`);
+            }
+        } catch (e) {
+            console.error("Update component error:", e);
+            if (progressText) progressText.textContent = `Исключение: ${e}`;
+            showToast("Ошибка при загрузке обновления");
+        } finally {
+            isUpdating = false;
+            setUpdateUiBusy(false);
+            await checkUpdates(true);
+        }
+    }
+
+    // Update all components
+    btnUpdateAll?.addEventListener('click', async () => {
+        if (isUpdating) return;
+        const outdated = currentComponents.filter(c => (c.HasUpdate !== undefined) ? c.HasUpdate : !!c.has_update);
+        const toUpdate = outdated.length > 0 ? outdated : currentComponents;
+
+        if (toUpdate.length === 0) {
+            showToast("Все компоненты уже актуальны!");
+            return;
+        }
+
+        isUpdating = true;
+        setUpdateUiBusy(true);
+
+        let successCount = 0;
+        let needsRestart = false;
+
+        for (const comp of toUpdate) {
+            const id = comp.Id || comp.id;
+            const progressBox = document.getElementById(`progress-box-${id}`);
+            const progressFill = document.getElementById(`progress-fill-${id}`);
+            const progressText = document.getElementById(`progress-text-${id}`);
+
+            if (progressBox) progressBox.classList.remove('hidden');
+            if (progressFill) progressFill.style.width = '10%';
+            if (progressText) progressText.textContent = 'Загрузка...';
+
+            try {
+                const res = await window.pywebview.api.update_component(id);
+                if (res && res.success) {
+                    successCount++;
+                    if (progressFill) progressFill.style.width = '100%';
+                    if (progressText) progressText.textContent = 'Обновлено ✔';
+                    if (res.need_restart) needsRestart = true;
+                } else {
+                    if (progressText) progressText.textContent = `Ошибка: ${res ? res.error : 'Сбой'}`;
+                }
+            } catch (err) {
+                if (progressText) progressText.textContent = `Ошибка: ${err}`;
+            }
+        }
+
+        isUpdating = false;
+        setUpdateUiBusy(false);
+
+        if (needsRestart) {
+            btnRestartApp?.classList.remove('hidden');
+            showToast("Обновление завершено! Нажмите «Перезапустить bksh2ray».");
+        } else {
+            showToast(`Успешно обновлено компонентов: ${successCount} из ${toUpdate.length}`);
+        }
+
+        await checkUpdates(true);
+    });
+
+    function setUpdateUiBusy(busy) {
+        if (btnCheckUpdates) btnCheckUpdates.disabled = busy;
+        if (btnUpdateAll) btnUpdateAll.disabled = busy;
+        const allCompBtns = document.querySelectorAll('.btn-comp-update');
+        allCompBtns.forEach(b => b.disabled = busy);
+    }
+
+    // Real-time progress callback from C#
+    window.onUpdateProgress = (comp, pct, text) => {
+        const progressBox = document.getElementById(`progress-box-${comp}`);
+        const progressFill = document.getElementById(`progress-fill-${comp}`);
+        const progressText = document.getElementById(`progress-text-${comp}`);
+
+        if (progressBox) progressBox.classList.remove('hidden');
+        if (progressFill) progressFill.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+        if (progressText) progressText.textContent = text;
+    };
+
     window.loadConfig = loadConfig;
-    window.startApp = startApp;
+    window.startApp = async () => {
+        await startApp();
+        // Silent update check in background on start
+        setTimeout(() => checkUpdates(true), 1500);
+    };
     
     init();
 });
+

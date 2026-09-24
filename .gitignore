@@ -1,4 +1,7 @@
-
 cache/
 *.log
-
+src/bin/
+src/obj/
+src/publish-single/
+*.tmp
+*.old
