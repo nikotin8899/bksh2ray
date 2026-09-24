@@ -1,0 +1,36 @@
+{
+  "servers": [
+    {
+      "name": "bs-nikitosik",
+      "server": "brauneschlange.de",
+      "server_port": 443,
+      "uuid": "7a7b9fa3-bc06-4e6d-8157-5d0ec3ca07c2",
+      "flow": "xtls-rprx-vision",
+      "security": "reality",
+      "sni": "google-analytics.com",
+      "pbk": "a6yc0YGrgyT91zn9fcJyC9VnWhcnq8j8C2wBPvxGbSc",
+      "sid": "599f0aa9fcab",
+      "spx": "/6ceb3ba376851bf",
+      "fp": "firefox",
+      "type": "tcp"
+    },
+    {
+      "name": "tpk-nsk_shor",
+      "server": "103.31.76.35",
+      "server_port": 443,
+      "uuid": "89ee7f45-9c30-43d8-8733-9baa37f5fa3b",
+      "flow": "xtls-rprx-vision",
+      "security": "reality",
+      "sni": "yt.be",
+      "pbk": "sN1aNMGh7e98hKy8WIss9nQNdZDoTqUKhtEXWrjuH28",
+      "sid": "d323449f",
+      "spx": "/e89242ff8633b39",
+      "fp": "firefox",
+      "type": "tcp"
+    }
+  ],
+  "active_server_index": 0,
+  "preset_ru": true,
+  "system_proxy": true,
+  "custom_direct_domains": []
+}

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>bksh2ray</title>
+    <link rel="icon" type="image/png" href="icon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Top Toolbar -->
+        <header class="toolbar glass-panel">
+            <div class="toolbar-group">
+                <button class="btn" id="btn-import-clipboard" title="Вставить vless:// из буфера обмена">
+                    <span class="icon">📋</span> Вставить из буфера
+                </button>
+                <button class="btn btn-danger-hover" id="btn-remove-server" title="Удалить выбранный сервер">
+                    <span class="icon">🗑️</span> Удалить
+                </button>
+            </div>
+            
+            <div class="toolbar-group center-group">
+                <div class="brand">
+                    <img src="icon.png" class="brand-logo" alt="bksh2ray">
+                    <span>bksh2ray</span>
+                </div>
+            </div>
+
+            <div class="toolbar-group right-group">
+                <button class="btn btn-bypass" id="btn-open-bypass" title="Сайты в обход VPN (Режим РФ и свои сайты напрямую)">
+                    <span class="icon">➕</span> Сайты напрямую
+                </button>
+                <button class="btn btn-start" id="btn-toggle">
+                    🚀 Запустить
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content: Server Table -->
+        <main class="main-content">
+            <div class="table-container glass-panel">
+                <table id="server-table">
+                    <thead>
+                        <tr>
+                            <th width="50">#</th>
+                            <th width="90">Протокол</th>
+                            <th width="220">Название</th>
+                            <th width="200">Адрес сервера</th>
+                            <th width="90">Порт</th>
+                            <th>Безопасность</th>
+                        </tr>
+                    </thead>
+                    <tbody id="server-list">
+                        <!-- Rows dynamically populated -->
+                    </tbody>
+                </table>
+            </div>
+        </main>
+
+        <!-- Resizer -->
+        <div class="resizer" id="log-resizer"></div>
+
+        <!-- Bottom Content: Logs -->
+        <footer class="log-panel glass-panel" id="log-panel">
+            <div class="log-header">
+                <span class="log-title">📋 Журнал событий</span>
+                <button class="btn-clear" id="btn-clear-logs">Очистить журнал</button>
+            </div>
+            <div class="log-content" id="log-output">
+                <!-- Log lines -->
+            </div>
+        </footer>
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot disconnected" id="status-dot"></div>
+                <span id="status-text">Готов к работе</span>
+            </div>
+            <div class="status-item speed-meter" id="speed-meter" title="Скорость передачи данных">
+                <span class="speed-icon" id="speed-icon">⚡</span>
+                <span class="speed-badge speed-down"><span class="arrow">↓</span> <span id="speed-down-val">0.0 KB/s</span></span>
+                <span class="speed-badge speed-up"><span class="arrow">↑</span> <span id="speed-up-val">0.0 KB/s</span></span>
+                <span class="speed-total" id="speed-total" title="Общий трафик">(0 B)</span>
+            </div>
+            <div class="status-item" id="status-server">
+                Сервер не выбран
+            </div>
+            <div class="status-item status-proxy-info">
+                127.0.0.1:10809 (SOCKS5: 10808)
+            </div>
+        </div>
+    </div>
+
+    <!-- Bypass / Direct Sites Modal -->
+    <div id="bypass-modal" class="modal-overlay hidden">
+        <div class="modal-card bypass-modal-card">
+            <div class="modal-header">
+                <span class="modal-icon">🌐</span>
+                <div class="modal-title-group">
+                    <h3 class="modal-title">Сайты в обход VPN (напрямую)</h3>
+                    <div class="modal-subtitle">Трафик к этим сайтам идёт напрямую от вашего провайдера без VPN</div>
+                </div>
+                <button class="btn-close-modal" id="btn-close-bypass">✕</button>
+            </div>
+            
+            <div class="bypass-body">
+                <!-- Add New Site Bar -->
+                <div class="add-domain-box">
+                    <input type="text" id="input-bypass-domain" class="input-domain" placeholder="Введите домен (напр. ivi.ru, kinopoisk.ru, *.ru)" autocomplete="off">
+                    <button class="btn btn-add-domain" id="btn-add-domain">
+                        <span>➕ Добавить</span>
+                    </button>
+                </div>
+
+                <!-- Scrollable sections -->
+                <div class="bypass-sections-container">
+                    <!-- User Custom Domains -->
+                    <div class="bypass-block">
+                        <div class="bypass-block-header">
+                            <span class="bypass-block-title">Мои добавленные сайты</span>
+                            <span class="badge-count" id="custom-domain-count">0</span>
+                        </div>
+                        <div class="custom-domain-list" id="custom-domain-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Default RU Rules -->
+                    <div class="bypass-block">
+                        <div class="bypass-block-header">
+                            <span class="bypass-block-title">Сервисы РФ по умолчанию</span>
+                            <span class="badge-status-on">● Всегда активно</span>
+                        </div>
+                        <div class="default-ru-list" id="default-ru-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="btn-close-bypass-footer">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <span class="modal-icon">🗑️</span>
+                <h3 class="modal-title">Удаление сервера</h3>
+            </div>
+            <p class="modal-body" id="modal-msg">Вы действительно хотите удалить выбранный сервер?</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="btn-modal-cancel">Отмена</button>
+                <button class="btn btn-danger" id="btn-modal-confirm">Удалить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
