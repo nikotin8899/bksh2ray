@@ -15,12 +15,15 @@ namespace bksh2ray
         private readonly string _appDir;
         private readonly string _binDir;
         private readonly string _xrayExe;
+        private readonly string _singBoxExe;
         private readonly string _configFile;
+        private readonly string _singBoxConfigFile;
 
         private Process? _process;
         private CancellationTokenSource? _statsCts;
 
         public bool IsRunning => _process != null && !_process.HasExited;
+        public string CurrentMode { get; private set; } = "proxy";
         public int SocksPort { get; private set; } = 10808;
         public int HttpPort { get; private set; } = 10809;
         public int ApiPort { get; private set; } = 10085;
@@ -34,7 +37,9 @@ namespace bksh2ray
             _appDir = appDir;
             _binDir = Path.Combine(_appDir, "bin");
             _xrayExe = Path.Combine(_binDir, "xray.exe");
+            _singBoxExe = Path.Combine(_binDir, "sing-box.exe");
             _configFile = Path.Combine(_appDir, "xray_config.json");
+            _singBoxConfigFile = Path.Combine(_appDir, "singbox_config.json");
         }
 
         public static int FindFreePort(int startPort, int maxTries = 50)
@@ -357,10 +362,198 @@ namespace bksh2ray
             File.WriteAllText(_configFile, JsonSerializer.Serialize(xrayConfig, options));
         }
 
+        public static bool IsAdministrator()
+        {
+            try
+            {
+                using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+                var principal = new System.Security.Principal.WindowsPrincipal(identity);
+                return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public void GenerateSingBoxConfig(AppConfig config)
+        {
+            if (config.ActiveServerIndex < 0 || config.ActiveServerIndex >= config.Servers.Count)
+                throw new InvalidOperationException("Сервер не выбран");
+
+            var vless = config.Servers[config.ActiveServerIndex];
+
+            var directDomainSuffixes = new List<string>
+            {
+                ".ru",
+                ".su",
+                ".xn--p1ai",
+                "sp.local",
+                "rosseti-ural.ru",
+                "mrsk-ural.ru",
+                "rosseti.ru",
+                "cplus.ru",
+                "teleofis.ru",
+                "tpk-stimul.com",
+                "geohide.ru",
+                "dns.geohide.ru"
+            };
+
+            foreach (var d in config.CustomDirectDomains)
+            {
+                var clean = d.Trim().ToLowerInvariant().TrimStart('.');
+                if (!string.IsNullOrEmpty(clean) && !directDomainSuffixes.Contains(clean))
+                    directDomainSuffixes.Add(clean);
+            }
+
+            var vlessOutbound = new Dictionary<string, object>
+            {
+                ["type"] = "vless",
+                ["tag"] = "proxy",
+                ["server"] = vless.Server,
+                ["server_port"] = vless.ServerPort,
+                ["uuid"] = vless.Uuid,
+                ["packet_encoding"] = "xudp"
+            };
+
+            if (!string.IsNullOrEmpty(vless.Flow))
+                vlessOutbound["flow"] = vless.Flow;
+
+            var sec = (vless.Security ?? "none").ToLowerInvariant();
+            if (sec == "reality")
+            {
+                vlessOutbound["tls"] = new Dictionary<string, object>
+                {
+                    ["enabled"] = true,
+                    ["server_name"] = vless.Sni ?? "",
+                    ["utls"] = new Dictionary<string, object>
+                    {
+                        ["enabled"] = true,
+                        ["fingerprint"] = string.IsNullOrEmpty(vless.Fp) ? "chrome" : vless.Fp
+                    },
+                    ["reality"] = new Dictionary<string, object>
+                    {
+                        ["enabled"] = true,
+                        ["public_key"] = vless.Pbk ?? "",
+                        ["short_id"] = vless.Sid ?? ""
+                    }
+                };
+            }
+            else if (sec == "tls")
+            {
+                vlessOutbound["tls"] = new Dictionary<string, object>
+                {
+                    ["enabled"] = true,
+                    ["server_name"] = vless.Sni ?? "",
+                    ["utls"] = new Dictionary<string, object>
+                    {
+                        ["enabled"] = true,
+                        ["fingerprint"] = string.IsNullOrEmpty(vless.Fp) ? "chrome" : vless.Fp
+                    }
+                };
+            }
+
+            var singBoxConfig = new Dictionary<string, object>
+            {
+                ["log"] = new Dictionary<string, object> { ["level"] = "warn" },
+                ["dns"] = new Dictionary<string, object>
+                {
+                    ["servers"] = new object[]
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["tag"] = "dns-direct",
+                            ["type"] = "local"
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["tag"] = "dns-geohide",
+                            ["type"] = "https",
+                            ["server"] = "193.233.112.68",
+                            ["server_port"] = 443,
+                            ["tls"] = new Dictionary<string, object>
+                            {
+                                ["enabled"] = true,
+                                ["server_name"] = "dns.geohide.ru"
+                            }
+                        }
+                    },
+                    ["rules"] = new object[]
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["domain_suffix"] = directDomainSuffixes,
+                            ["server"] = "dns-direct"
+                        }
+                    },
+                    ["final"] = "dns-geohide"
+                },
+                ["inbounds"] = new object[]
+                {
+                    new Dictionary<string, object>
+                    {
+                        ["type"] = "tun",
+                        ["tag"] = "tun-in",
+                        ["interface_name"] = "bksh2ray_tun",
+                        ["address"] = new[] { "172.19.0.1/30" },
+                        ["auto_route"] = true,
+                        ["strict_route"] = true,
+                        ["stack"] = "gvisor"
+                    }
+                },
+                ["outbounds"] = new object[]
+                {
+                    vlessOutbound,
+                    new Dictionary<string, object> { ["type"] = "direct", ["tag"] = "direct" },
+                    new Dictionary<string, object> { ["type"] = "block", ["tag"] = "block" }
+                },
+                ["route"] = new Dictionary<string, object>
+                {
+                    ["default_domain_resolver"] = "dns-direct",
+                    ["rules"] = new object[]
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["protocol"] = "dns",
+                            ["action"] = "hijack-dns"
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["ip_is_private"] = true,
+                            ["outbound"] = "direct"
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["domain_suffix"] = directDomainSuffixes,
+                            ["outbound"] = "direct"
+                        }
+                    },
+                    ["final"] = "proxy",
+                    ["auto_detect_interface"] = true
+                }
+            };
+
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            File.WriteAllText(_singBoxConfigFile, JsonSerializer.Serialize(singBoxConfig, options));
+        }
+
         public bool Start(AppConfig config)
         {
             if (IsRunning) return true;
 
+            CurrentMode = (config.Mode ?? "proxy").ToLowerInvariant();
+            if (CurrentMode == "tun")
+            {
+                return StartTun(config);
+            }
+            else
+            {
+                return StartProxy(config);
+            }
+        }
+
+        private bool StartProxy(AppConfig config)
+        {
             if (!File.Exists(_xrayExe))
                 throw new FileNotFoundException($"xray.exe не найден в папке bin: {_xrayExe}");
 
@@ -400,6 +593,69 @@ namespace bksh2ray
             return true;
         }
 
+        private bool StartTun(AppConfig config)
+        {
+            if (!File.Exists(_singBoxExe))
+                throw new FileNotFoundException($"sing-box.exe не найден в папке bin: {_singBoxExe}");
+
+            GenerateSingBoxConfig(config);
+
+            bool isElevated = IsAdministrator();
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = _singBoxExe,
+                Arguments = $"run -c \"{_singBoxConfigFile}\"",
+                WorkingDirectory = _appDir,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+
+            if (!isElevated)
+            {
+                startInfo.UseShellExecute = true;
+                startInfo.Verb = "runas";
+            }
+            else
+            {
+                startInfo.UseShellExecute = false;
+                startInfo.RedirectStandardOutput = true;
+                startInfo.RedirectStandardError = true;
+            }
+
+            try
+            {
+                _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+                if (isElevated)
+                {
+                    _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
+                    _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
+                }
+                _process.Exited += (s, e) =>
+                {
+                    StateChanged?.Invoke();
+                };
+
+                _process.Start();
+                if (isElevated)
+                {
+                    _process.BeginOutputReadLine();
+                    _process.BeginErrorReadLine();
+                }
+
+                // In TUN mode, system proxy should be disabled (traffic flows through the TUN virtual adapter)
+                SystemProxy.SetProxy(false);
+
+                LogReceived?.Invoke("[TUN] Адаптер bksh2ray_tun запущен");
+                StateChanged?.Invoke();
+                return true;
+            }
+            catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+            {
+                _process = null;
+                throw new InvalidOperationException("Для включения режима TUN требуются права администратора (UAC был отклонён).");
+            }
+        }
+
         public void Stop()
         {
             SystemProxy.SetProxy(false);
@@ -423,46 +679,9 @@ namespace bksh2ray
         public void RestartIfRunning(AppConfig config)
         {
             if (!IsRunning) return;
-
-            try
-            {
-                if (_process != null && !_process.HasExited)
-                {
-                    _process.Kill();
-                    _process.WaitForExit(1000);
-                }
-            }
-            catch { }
-            _process = null;
-
-            GenerateConfig(config);
-
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = _xrayExe,
-                Arguments = $"run -c \"{_configFile}\"",
-                WorkingDirectory = _appDir,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-            startInfo.EnvironmentVariables["xray.location.asset"] = _binDir;
-
-            _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
-            _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
-            _process.Exited += (s, e) =>
-            {
-                SystemProxy.SetProxy(false);
-                StateChanged?.Invoke();
-            };
-
-            _process.Start();
-            _process.BeginOutputReadLine();
-            _process.BeginErrorReadLine();
-
-            SystemProxy.SetProxy(true, "127.0.0.1", HttpPort, config.CustomDirectDomains);
+            Stop();
+            Thread.Sleep(500);
+            Start(config);
         }
 
         private async Task RunStatsWorkerAsync(CancellationToken token)

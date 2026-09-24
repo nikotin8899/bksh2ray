@@ -57,6 +57,9 @@ namespace bksh2ray
         [JsonPropertyName("system_proxy")]
         public bool SystemProxy { get; set; } = true;
 
+        [JsonPropertyName("mode")]
+        public string Mode { get; set; } = "proxy";
+
         [JsonPropertyName("custom_direct_domains")]
         public List<string> CustomDirectDomains { get; set; } = new();
     }

@@ -9,6 +9,9 @@
     <AssemblyName>bksh2ray</AssemblyName>
     <RootNamespace>bksh2ray</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.2.4</Version>
+    <FileVersion>1.2.4</FileVersion>
+    <AssemblyVersion>1.2.4</AssemblyVersion>
     <NoWarn>MSB3277</NoWarn>
   </PropertyGroup>
 

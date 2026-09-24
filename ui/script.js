@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDot = document.getElementById('status-dot');
     const statusText = document.getElementById('status-text');
     const statusServer = document.getElementById('status-server');
+    const statusModeInfo = document.getElementById('status-mode-info');
     
     // Speedometer elements
     const speedIcon = document.getElementById('speed-icon');
@@ -28,10 +29,42 @@ document.addEventListener('DOMContentLoaded', () => {
     const speedUpVal = document.getElementById('speed-up-val');
     const speedTotal = document.getElementById('speed-total');
 
+    // Context Menus
+    const modeContextMenu = document.getElementById('mode-context-menu');
+    const menuModeProxy = document.getElementById('menu-mode-proxy');
+    const menuModeTun = document.getElementById('menu-mode-tun');
+    const checkModeProxy = document.getElementById('check-mode-proxy');
+    const checkModeTun = document.getElementById('check-mode-tun');
+
+    const serverContextMenu = document.getElementById('server-context-menu');
+    const ctxServerConnect = document.getElementById('ctx-server-connect');
+    const ctxServerEdit = document.getElementById('ctx-server-edit');
+    const ctxServerDelete = document.getElementById('ctx-server-delete');
+    let contextMenuServerIndex = -1;
+
+    // Edit Server Modal
+    const editServerModal = document.getElementById('edit-server-modal');
+    const btnCloseEdit = document.getElementById('btn-close-edit');
+    const btnCancelEdit = document.getElementById('btn-cancel-edit');
+    const btnSaveEdit = document.getElementById('btn-save-edit');
+    const editServerIndex = document.getElementById('edit-server-index');
+    const editServerName = document.getElementById('edit-server-name');
+    const editServerHost = document.getElementById('edit-server-host');
+    const editServerPort = document.getElementById('edit-server-port');
+    const editServerUuid = document.getElementById('edit-server-uuid');
+    const editServerSecurity = document.getElementById('edit-server-security');
+    const editServerFlow = document.getElementById('edit-server-flow');
+    const editServerSni = document.getElementById('edit-server-sni');
+    const editServerFp = document.getElementById('edit-server-fp');
+    const editServerPbk = document.getElementById('edit-server-pbk');
+    const editServerSid = document.getElementById('edit-server-sid');
+    const editServerSpx = document.getElementById('edit-server-spx');
+
     // --- State ---
     let servers = [];
     let activeIndex = -1;
     let isRunning = false;
+    let currentMode = "proxy";
     
     // --- Formatting helper ---
     function formatBytes(bytes, isSpeed = false) {
@@ -164,10 +197,35 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (modeContextMenu && !modeContextMenu.classList.contains('hidden')) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideModeContextMenu();
+                return;
+            }
+        }
+
+        if (serverContextMenu && !serverContextMenu.classList.contains('hidden')) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideServerContextMenu();
+                return;
+            }
+        }
+
+        if (editServerModal && !editServerModal.classList.contains('hidden')) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeEditModal();
+                return;
+            }
+        }
+
         if (bypassModal && !bypassModal.classList.contains('hidden')) {
             if (e.key === 'Escape') {
                 e.preventDefault();
                 closeBypassModal();
+                return;
             }
             return;
         }
@@ -326,6 +384,220 @@ document.addEventListener('DOMContentLoaded', () => {
             else showToast(res.error);
         }
     });
+
+    // Right-click on btnToggle -> Mode context menu
+    btnToggle.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showModeContextMenu(e.clientX, e.clientY);
+    });
+
+    function showModeContextMenu(x, y) {
+        hideServerContextMenu();
+        if (!modeContextMenu) return;
+
+        if (currentMode === 'tun') {
+            if (checkModeTun) checkModeTun.style.display = 'inline';
+            if (checkModeProxy) checkModeProxy.style.display = 'none';
+        } else {
+            if (checkModeTun) checkModeTun.style.display = 'none';
+            if (checkModeProxy) checkModeProxy.style.display = 'inline';
+        }
+
+        const menuW = 270;
+        const menuH = 150;
+        const posX = Math.min(x, window.innerWidth - menuW - 10);
+        const posY = Math.min(y, window.innerHeight - menuH - 10);
+
+        modeContextMenu.style.left = `${Math.max(10, posX)}px`;
+        modeContextMenu.style.top = `${Math.max(10, posY)}px`;
+        modeContextMenu.classList.remove('hidden');
+    }
+
+    function hideModeContextMenu() {
+        if (modeContextMenu) modeContextMenu.classList.add('hidden');
+    }
+
+    menuModeProxy?.addEventListener('click', () => switchMode('proxy'));
+    menuModeTun?.addEventListener('click', () => switchMode('tun'));
+
+    async function switchMode(newMode) {
+        hideModeContextMenu();
+        if (newMode === currentMode) return;
+        try {
+            const res = await window.pywebview.api.set_mode(newMode);
+            if (res && res.success) {
+                currentMode = newMode;
+                showToast(newMode === 'tun' ? "Включен режим TUN (сетевой адаптер)" : "Включен системный прокси");
+                await updateConnectionState();
+            } else {
+                showToast("Ошибка смены режима: " + (res?.error || "Сбой"));
+            }
+        } catch (e) {
+            showToast("Ошибка: " + e);
+        }
+    }
+
+    // --- Server Context Menu & Editing ---
+    function showServerContextMenu(idx, x, y) {
+        hideModeContextMenu();
+        if (!serverContextMenu) return;
+        contextMenuServerIndex = idx;
+
+        const menuW = 200;
+        const menuH = 150;
+        const posX = Math.min(x, window.innerWidth - menuW - 10);
+        const posY = Math.min(y, window.innerHeight - menuH - 10);
+
+        serverContextMenu.style.left = `${Math.max(10, posX)}px`;
+        serverContextMenu.style.top = `${Math.max(10, posY)}px`;
+        serverContextMenu.classList.remove('hidden');
+    }
+
+    function hideServerContextMenu() {
+        if (serverContextMenu) serverContextMenu.classList.add('hidden');
+        contextMenuServerIndex = -1;
+    }
+
+    ctxServerConnect?.addEventListener('click', async () => {
+        const targetIdx = contextMenuServerIndex;
+        hideServerContextMenu();
+        if (targetIdx < 0 || targetIdx >= servers.length) return;
+
+        const srv = servers[targetIdx];
+        await window.pywebview.api.set_active_server(targetIdx);
+        await loadConfig();
+
+        if (!isRunning) {
+            const res = await window.pywebview.api.start_proxy();
+            if (res && res.success) await updateConnectionState();
+            else showToast(res ? res.error : "Ошибка запуска");
+        } else {
+            showToast(`Переключено на «${srv.name || srv.server}»`);
+            await updateConnectionState();
+        }
+    });
+
+    ctxServerEdit?.addEventListener('click', () => {
+        const targetIdx = contextMenuServerIndex;
+        hideServerContextMenu();
+        if (targetIdx < 0 || targetIdx >= servers.length) return;
+        openEditModal(targetIdx);
+    });
+
+    ctxServerDelete?.addEventListener('click', () => {
+        const targetIdx = contextMenuServerIndex;
+        hideServerContextMenu();
+        if (targetIdx < 0 || targetIdx >= servers.length) return;
+
+        const srv = servers[targetIdx];
+        const srvName = srv.name || srv.server || `Сервер #${targetIdx + 1}`;
+        showConfirmModal(`Вы действительно хотите удалить сервер «${srvName}»?`, async () => {
+            const res = await window.pywebview.api.remove_server(targetIdx);
+            if (res && res.success) {
+                showToast(`Сервер «${srvName}» удален`);
+                await loadConfig();
+                if (isRunning) await updateConnectionState();
+            } else {
+                showToast("Ошибка: " + (res?.error || "Сбой"));
+            }
+        });
+    });
+
+    function openEditModal(idx) {
+        const srv = servers[idx];
+        if (!srv || !editServerModal) return;
+
+        editServerIndex.value = idx;
+        editServerName.value = srv.name || '';
+        editServerHost.value = srv.server || '';
+        editServerPort.value = srv.server_port || 443;
+        editServerUuid.value = srv.uuid || '';
+        editServerSecurity.value = srv.security || 'reality';
+        editServerFlow.value = srv.flow || '';
+        editServerSni.value = srv.sni || '';
+        editServerFp.value = srv.fp || '';
+        editServerPbk.value = srv.pbk || '';
+        editServerSid.value = srv.sid || '';
+        editServerSpx.value = srv.spx || '';
+
+        editServerModal.classList.remove('hidden');
+        setTimeout(() => editServerName.focus(), 60);
+    }
+
+    function closeEditModal() {
+        if (editServerModal) editServerModal.classList.add('hidden');
+    }
+
+    btnCloseEdit?.addEventListener('click', closeEditModal);
+    btnCancelEdit?.addEventListener('click', closeEditModal);
+
+    btnSaveEdit?.addEventListener('click', async () => {
+        const idx = parseInt(editServerIndex.value, 10);
+        if (isNaN(idx) || idx < 0 || idx >= servers.length) return;
+
+        const srvName = editServerName.value.trim();
+        const serverHost = editServerHost.value.trim();
+        const serverPort = parseInt(editServerPort.value, 10);
+        const serverUuid = editServerUuid.value.trim();
+
+        if (!serverHost) {
+            showToast("Укажите адрес сервера");
+            editServerHost.focus();
+            return;
+        }
+        if (isNaN(serverPort) || serverPort <= 0 || serverPort > 65535) {
+            showToast("Укажите корректный порт (1-65535)");
+            editServerPort.focus();
+            return;
+        }
+        if (!serverUuid) {
+            showToast("Укажите UUID");
+            editServerUuid.focus();
+            return;
+        }
+
+        const updatedData = {
+            name: srvName || serverHost,
+            server: serverHost,
+            server_port: serverPort,
+            uuid: serverUuid,
+            security: editServerSecurity.value,
+            flow: editServerFlow.value.trim(),
+            sni: editServerSni.value.trim(),
+            fp: editServerFp.value.trim(),
+            pbk: editServerPbk.value.trim(),
+            sid: editServerSid.value.trim(),
+            spx: editServerSpx.value.trim()
+        };
+
+        try {
+            const res = await window.pywebview.api.edit_server(idx, updatedData);
+            if (res && res.success) {
+                closeEditModal();
+                showToast("Параметры сервера сохранены");
+                await loadConfig();
+                if (isRunning) await updateConnectionState();
+            } else {
+                showToast("Ошибка сохранения: " + (res?.error || "Сбой"));
+            }
+        } catch (e) {
+            showToast("Ошибка сохранения: " + e);
+        }
+    });
+
+    // Close context menus on document click
+    document.addEventListener('click', (e) => {
+        if (modeContextMenu && !modeContextMenu.classList.contains('hidden')) {
+            if (!e.target.closest('#mode-context-menu') && !e.target.closest('#btn-toggle')) {
+                hideModeContextMenu();
+            }
+        }
+        if (serverContextMenu && !serverContextMenu.classList.contains('hidden')) {
+            if (!e.target.closest('#server-context-menu')) {
+                hideServerContextMenu();
+            }
+        }
+    });
     
     btnClearLogs.addEventListener('click', () => {
         logOutput.innerHTML = '';
@@ -358,16 +630,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td><span class="badge-sec">${srv.security || 'none'}</span></td>
             `;
             
+            // Left click: select server, and if VPN is running, switch instantly on the fly!
             tr.addEventListener('click', async () => {
+                if (idx === activeIndex && !isRunning) return;
                 await window.pywebview.api.set_active_server(idx);
                 await loadConfig();
+                if (isRunning) {
+                    showToast(`Переключено на «${srv.name || srv.server}»`);
+                    await updateConnectionState();
+                }
+            });
+
+            // Right click: open server context menu
+            tr.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showServerContextMenu(idx, e.clientX, e.clientY);
             });
             
             serverList.appendChild(tr);
         });
         
         if (activeIndex >= 0 && activeIndex < servers.length) {
-            statusServer.textContent = `Активный сервер: ${servers[activeIndex].name || servers[activeIndex].server} (${servers[activeIndex].server}:${servers[activeIndex].server_port})`;
+            statusServer.textContent = `Активный: ${servers[activeIndex].name || servers[activeIndex].server} (${servers[activeIndex].server}:${servers[activeIndex].server_port})`;
         } else {
             statusServer.textContent = "Сервер не выбран";
         }
@@ -378,12 +662,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!window.pywebview) return;
         const status = await window.pywebview.api.get_status();
         isRunning = status.is_running;
+        if (status.mode) currentMode = status.mode;
+
+        if (statusModeInfo) {
+            if (currentMode === 'tun') {
+                statusModeInfo.textContent = 'Режим: TUN (bksh2ray_tun)';
+            } else {
+                statusModeInfo.textContent = '127.0.0.1:10809 (SOCKS5: 10808)';
+            }
+        }
         
         if (isRunning) {
             btnToggle.innerHTML = '🛑 Остановить';
             btnToggle.classList.add('running');
             statusDot.classList.replace("disconnected", "connected");
-            statusText.textContent = "Подключено (Прокси активен)";
+            statusText.textContent = currentMode === 'tun' ? "Подключено (TUN адаптер)" : "Подключено (Прокси активен)";
         } else {
             btnToggle.innerHTML = '🚀 Запустить';
             btnToggle.classList.remove('running');

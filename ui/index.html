@@ -92,11 +92,11 @@
             <div class="status-item" id="status-server">
                 Сервер не выбран
             </div>
-            <div class="status-item status-proxy-info">
+            <div class="status-item status-proxy-info" id="status-mode-info">
                 127.0.0.1:10809 (SOCKS5: 10808)
             </div>
             <div class="status-item app-version-tag" id="app-version-tag" title="Версия приложения bksh2ray">
-                v1.2.3
+                v1.2.4
             </div>
         </div>
     </div>
@@ -206,6 +206,121 @@
             <div class="modal-actions">
                 <button class="btn btn-secondary" id="btn-modal-cancel">Отмена</button>
                 <button class="btn btn-danger" id="btn-modal-confirm">Удалить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Server Modal -->
+    <div id="edit-server-modal" class="modal-overlay hidden">
+        <div class="modal-card edit-server-card">
+            <div class="modal-header">
+                <span class="modal-icon">✏️</span>
+                <div class="modal-title-group">
+                    <h3 class="modal-title">Редактирование сервера</h3>
+                    <div class="modal-subtitle">Изменение параметров VLESS подключения</div>
+                </div>
+                <button class="btn-close-modal" id="btn-close-edit">✕</button>
+            </div>
+            <div class="edit-server-body">
+                <input type="hidden" id="edit-server-index">
+                <div class="form-grid">
+                    <div class="form-group full-width">
+                        <label for="edit-server-name">Название</label>
+                        <input type="text" id="edit-server-name" class="input-modern" placeholder="Название сервера">
+                    </div>
+                    <div class="form-group two-thirds">
+                        <label for="edit-server-host">Адрес (Хост / IP)</label>
+                        <input type="text" id="edit-server-host" class="input-modern" placeholder="example.com или IP">
+                    </div>
+                    <div class="form-group one-third">
+                        <label for="edit-server-port">Порт</label>
+                        <input type="number" id="edit-server-port" class="input-modern" placeholder="443" min="1" max="65535">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="edit-server-uuid">UUID / Пароль</label>
+                        <input type="text" id="edit-server-uuid" class="input-modern" placeholder="00000000-0000-0000-0000-000000000000">
+                    </div>
+                    <div class="form-group half">
+                        <label for="edit-server-security">Безопасность (Security)</label>
+                        <select id="edit-server-security" class="select-modern">
+                            <option value="reality">reality</option>
+                            <option value="tls">tls</option>
+                            <option value="none">none</option>
+                        </select>
+                    </div>
+                    <div class="form-group half">
+                        <label for="edit-server-flow">Flow</label>
+                        <input type="text" id="edit-server-flow" class="input-modern" placeholder="xtls-rprx-vision или пусто">
+                    </div>
+                    <div class="form-group half">
+                        <label for="edit-server-sni">SNI (Server Name)</label>
+                        <input type="text" id="edit-server-sni" class="input-modern" placeholder="yahoo.com">
+                    </div>
+                    <div class="form-group half">
+                        <label for="edit-server-fp">Fingerprint (fp)</label>
+                        <input type="text" id="edit-server-fp" class="input-modern" placeholder="chrome">
+                    </div>
+                    <div class="form-group full-width">
+                        <label for="edit-server-pbk">Public Key (pbk)</label>
+                        <input type="text" id="edit-server-pbk" class="input-modern" placeholder="Public Key для Reality">
+                    </div>
+                    <div class="form-group half">
+                        <label for="edit-server-sid">Short ID (sid)</label>
+                        <input type="text" id="edit-server-sid" class="input-modern" placeholder="Short ID (hex)">
+                    </div>
+                    <div class="form-group half">
+                        <label for="edit-server-spx">SpiderX (spx)</label>
+                        <input type="text" id="edit-server-spx" class="input-modern" placeholder="/">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="btn-cancel-edit">Отмена</button>
+                <button class="btn btn-save" id="btn-save-edit">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mode Context Menu (Right-click on Start button) -->
+    <div id="mode-context-menu" class="custom-context-menu hidden">
+        <div class="context-menu-header">Режим работы</div>
+        <div class="context-menu-item" data-mode="proxy" id="menu-mode-proxy">
+            <span class="context-menu-icon">🌐</span>
+            <div class="context-menu-label">
+                <div class="menu-title">Системный прокси</div>
+                <div style="font-size: 0.72rem; color: #64748b; font-weight: normal;">HTTP/SOCKS5 в настройках Windows</div>
+            </div>
+            <span class="context-menu-check" id="check-mode-proxy">✓</span>
+        </div>
+        <div class="context-menu-item" data-mode="tun" id="menu-mode-tun">
+            <span class="context-menu-icon">🛡️</span>
+            <div class="context-menu-label">
+                <div class="menu-title">Режим TUN (Сетевой адаптер)</div>
+                <div style="font-size: 0.72rem; color: #64748b; font-weight: normal;">Весь трафик ПК через sing-box TUN</div>
+            </div>
+            <span class="context-menu-check" id="check-mode-tun" style="display: none;">✓</span>
+        </div>
+    </div>
+
+    <!-- Server Context Menu (Right-click on Server row) -->
+    <div id="server-context-menu" class="custom-context-menu hidden">
+        <div class="context-menu-item" id="ctx-server-connect">
+            <span class="context-menu-icon">🚀</span>
+            <div class="context-menu-label">
+                <div class="menu-title">Запустить</div>
+            </div>
+        </div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" id="ctx-server-edit">
+            <span class="context-menu-icon">✏️</span>
+            <div class="context-menu-label">
+                <div class="menu-title">Редактировать</div>
+            </div>
+        </div>
+        <div class="context-menu-item item-danger" id="ctx-server-delete">
+            <span class="context-menu-icon">🗑️</span>
+            <div class="context-menu-label">
+                <div class="menu-title">Удалить</div>
             </div>
         </div>
     </div>

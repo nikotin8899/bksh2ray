@@ -169,7 +169,10 @@ namespace bksh2ray
                             check_updates: () => callNative('check_updates'),
                             update_component: (name) => callNative('update_component', name),
                             update_all: () => callNative('update_all'),
-                            restart_app: () => callNative('restart_app')
+                            restart_app: () => callNative('restart_app'),
+                            edit_server: (idx, data) => callNative('edit_server', idx, data),
+                            set_mode: (mode) => callNative('set_mode', mode),
+                            get_mode: () => callNative('get_mode')
                         }
                     };
 
@@ -217,7 +220,11 @@ namespace bksh2ray
                         break;
 
                     case "get_status":
-                        result = new { is_running = _xrayMgr.IsRunning };
+                        result = new { 
+                            is_running = _xrayMgr.IsRunning,
+                            mode = _configMgr.Config.Mode ?? "proxy",
+                            current_mode = _xrayMgr.CurrentMode
+                        };
                         break;
 
                     case "set_active_server":
@@ -226,12 +233,63 @@ namespace bksh2ray
                         {
                             _configMgr.Config.ActiveServerIndex = srvIdx;
                             _configMgr.Save();
+                            if (_xrayMgr.IsRunning)
+                            {
+                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            }
+                            result = new { success = true, is_running = _xrayMgr.IsRunning };
+                        }
+                        else
+                        {
+                            result = new { success = false, error = "Неверный индекс сервера" };
+                        }
+                        break;
+
+                    case "edit_server":
+                        int editIdx = root.GetProperty("args")[0].GetInt32();
+                        var srvData = root.GetProperty("args")[1];
+                        if (editIdx >= 0 && editIdx < _configMgr.Config.Servers.Count)
+                        {
+                            var srv = _configMgr.Config.Servers[editIdx];
+                            if (srvData.TryGetProperty("name", out var pName)) srv.Name = pName.GetString() ?? "";
+                            if (srvData.TryGetProperty("server", out var pServer)) srv.Server = pServer.GetString() ?? "";
+                            if (srvData.TryGetProperty("server_port", out var pPort)) srv.ServerPort = pPort.GetInt32();
+                            if (srvData.TryGetProperty("uuid", out var pUuid)) srv.Uuid = pUuid.GetString() ?? "";
+                            if (srvData.TryGetProperty("flow", out var pFlow)) srv.Flow = pFlow.GetString() ?? "";
+                            if (srvData.TryGetProperty("security", out var pSec)) srv.Security = pSec.GetString() ?? "none";
+                            if (srvData.TryGetProperty("sni", out var pSni)) srv.Sni = pSni.GetString() ?? "";
+                            if (srvData.TryGetProperty("pbk", out var pPbk)) srv.Pbk = pPbk.GetString() ?? "";
+                            if (srvData.TryGetProperty("sid", out var pSid)) srv.Sid = pSid.GetString() ?? "";
+                            if (srvData.TryGetProperty("spx", out var pSpx)) srv.Spx = pSpx.GetString() ?? "";
+                            if (srvData.TryGetProperty("fp", out var pFp)) srv.Fp = pFp.GetString() ?? "chrome";
+
+                            _configMgr.Save();
+
+                            if (_xrayMgr.IsRunning && _configMgr.Config.ActiveServerIndex == editIdx)
+                            {
+                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            }
                             result = new { success = true };
                         }
                         else
                         {
                             result = new { success = false, error = "Неверный индекс сервера" };
                         }
+                        break;
+
+                    case "set_mode":
+                        string newMode = root.GetProperty("args")[0].GetString() ?? "proxy";
+                        _configMgr.Config.Mode = newMode;
+                        _configMgr.Save();
+                        if (_xrayMgr.IsRunning)
+                        {
+                            _xrayMgr.RestartIfRunning(_configMgr.Config);
+                        }
+                        result = new { success = true, mode = newMode, is_running = _xrayMgr.IsRunning };
+                        break;
+
+                    case "get_mode":
+                        result = new { mode = _configMgr.Config.Mode ?? "proxy" };
                         break;
 
                     case "remove_server":
