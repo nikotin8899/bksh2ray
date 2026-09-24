@@ -3,5 +3,6 @@ cache/
 src/bin/
 src/obj/
 src/publish-single/
+publish-single/
 *.tmp
 *.old

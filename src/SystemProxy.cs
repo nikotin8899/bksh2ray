@@ -46,7 +46,9 @@ namespace bksh2ray
                 "*.rosseti.ru",
                 "*.cplus.ru",
                 "*.teleofis.ru",
-                "*.tpk-stimul.com"
+                "*.tpk-stimul.com",
+                "*.geohide.ru",
+                "geohide.ru"
             };
 
             if (customDomains != null)

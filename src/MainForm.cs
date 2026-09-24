@@ -458,6 +458,7 @@ namespace bksh2ray
             }
 
             Environment.Exit(0);
+            Process.GetCurrentProcess().Kill();
         }
 
         private void RestoreFromTray()
@@ -470,10 +471,20 @@ namespace bksh2ray
         private void ExitApplication()
         {
             _reallyQuit = true;
-            _xrayMgr.Stop();
-            _trayIcon.Visible = false;
+            try { _xrayMgr.Stop(); } catch { }
+            try
+            {
+                if (_trayIcon != null)
+                {
+                    _trayIcon.Visible = false;
+                    _trayIcon.Dispose();
+                }
+            }
+            catch { }
             Close();
             Application.Exit();
+            Environment.Exit(0);
+            Process.GetCurrentProcess().Kill();
         }
 
         private void OnFormClosing(object? sender, FormClosingEventArgs e)

@@ -160,6 +160,8 @@ namespace bksh2ray
                 "domain:cplus.ru",
                 "domain:teleofis.ru",
                 "domain:tpk-stimul.com",
+                "domain:geohide.ru",
+                "domain:dns.geohide.ru",
                 "domain:ru",
                 "domain:su",
                 "domain:рф",
@@ -180,7 +182,7 @@ namespace bksh2ray
                 }
             }
 
-            // Direct IPs: corporate subnets, private subnets (RFC 1918, CGNAT, link-local)
+            // Direct IPs: corporate subnets, private subnets (RFC 1918, CGNAT, link-local), GeoHide DNS IPs
             var directIps = new List<string>
             {
                 "geoip:private",
@@ -191,22 +193,27 @@ namespace bksh2ray
                 "169.254.0.0/16",
                 "127.0.0.0/8",
                 "217.65.83.0/24",
-                "109.202.29.0/24"
+                "109.202.29.0/24",
+                "193.233.112.68/32",
+                "193.233.112.67/32",
+                "46.8.158.6/32",
+                "37.230.192.51/32"
             };
 
             var rules = new List<Dictionary<string, object>>
             {
                 new() { ["type"] = "field", ["inboundTag"] = new[] { "api" }, ["outboundTag"] = "api" },
+                new() { ["type"] = "field", ["port"] = "53", ["outboundTag"] = "dns-out" },
                 new() { ["type"] = "field", ["outboundTag"] = "direct", ["protocol"] = new[] { "bittorrent" } },
                 new() { ["type"] = "field", ["outboundTag"] = "block", ["domain"] = new[] { "geosite:category-ads-all" } },
-                // 1. Corporate, LAN & Private IPs -> Direct
+                // 1. Corporate, LAN & Private IPs, GeoHide IPs -> Direct
                 new()
                 {
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
                     ["ip"] = directIps
                 },
-                // 2. Corporate, Local, RU and Custom Domains -> Direct
+                // 2. Corporate, Local, RU, GeoHide and Custom Domains -> Direct
                 new()
                 {
                     ["type"] = "field",
@@ -256,6 +263,44 @@ namespace bksh2ray
                         ["statsOutboundDownlink"] = true
                     }
                 },
+                ["dns"] = new Dictionary<string, object>
+                {
+                    ["hosts"] = new Dictionary<string, object>
+                    {
+                        ["dns.geohide.ru"] = new[] { "193.233.112.68", "193.233.112.67" },
+                        ["geohide.ru"] = new[] { "193.233.112.68", "193.233.112.67" }
+                    },
+                    ["queryStrategy"] = "UseIPv4",
+                    ["servers"] = new object[]
+                    {
+                        new Dictionary<string, object>
+                        {
+                            ["address"] = "localhost",
+                            ["domains"] = directDomains,
+                            ["skipFallback"] = true
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["address"] = "https://dns.geohide.ru/dns-query",
+                            ["queryStrategy"] = "UseIPv4"
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["address"] = "https://geohide.ru/dns-query",
+                            ["queryStrategy"] = "UseIPv4"
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["address"] = "tcp://193.233.112.68:53",
+                            ["queryStrategy"] = "UseIPv4"
+                        },
+                        new Dictionary<string, object>
+                        {
+                            ["address"] = "193.233.112.68",
+                            ["queryStrategy"] = "UseIPv4"
+                        }
+                    }
+                },
                 ["inbounds"] = new object[]
                 {
                     new Dictionary<string, object>
@@ -272,6 +317,12 @@ namespace bksh2ray
                         ["listen"] = "127.0.0.1",
                         ["protocol"] = "socks",
                         ["settings"] = new Dictionary<string, object> { ["udp"] = true },
+                        ["sniffing"] = new Dictionary<string, object>
+                        {
+                            ["enabled"] = true,
+                            ["destOverride"] = new[] { "http", "tls" },
+                            ["routeOnly"] = true
+                        },
                         ["tag"] = "socks-in"
                     },
                     new Dictionary<string, object>
@@ -279,6 +330,12 @@ namespace bksh2ray
                         ["port"] = HttpPort,
                         ["listen"] = "127.0.0.1",
                         ["protocol"] = "http",
+                        ["sniffing"] = new Dictionary<string, object>
+                        {
+                            ["enabled"] = true,
+                            ["destOverride"] = new[] { "http", "tls" },
+                            ["routeOnly"] = true
+                        },
                         ["tag"] = "http-in"
                     }
                 },
@@ -286,11 +343,12 @@ namespace bksh2ray
                 {
                     outboundProxy,
                     new Dictionary<string, object> { ["protocol"] = "freedom", ["tag"] = "direct" },
-                    new Dictionary<string, object> { ["protocol"] = "blackhole", ["tag"] = "block" }
+                    new Dictionary<string, object> { ["protocol"] = "blackhole", ["tag"] = "block" },
+                    new Dictionary<string, object> { ["protocol"] = "dns", ["tag"] = "dns-out" }
                 },
                 ["routing"] = new Dictionary<string, object>
                 {
-                    ["domainStrategy"] = "AsIs",
+                    ["domainStrategy"] = "IPIfNonMatch",
                     ["rules"] = rules
                 }
             };

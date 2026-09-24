@@ -24,10 +24,61 @@
     }
   },
   "dns": {
+    "hosts": {
+      "dns.geohide.ru": [
+        "193.233.112.68",
+        "193.233.112.67"
+      ],
+      "geohide.ru": [
+        "193.233.112.68",
+        "193.233.112.67"
+      ]
+    },
+    "queryStrategy": "UseIPv4",
     "servers": [
-      "localhost",
-      "77.88.8.8",
-      "1.1.1.1"
+      {
+        "address": "localhost",
+        "domains": [
+          "geosite:private",
+          "domain:local",
+          "domain:corp",
+          "domain:lan",
+          "domain:home",
+          "domain:internal",
+          "domain:intra",
+          "domain:sp.local",
+          "domain:rosseti-ural.ru",
+          "domain:mrsk-ural.ru",
+          "domain:rosseti.ru",
+          "domain:cplus.ru",
+          "domain:teleofis.ru",
+          "domain:tpk-stimul.com",
+          "domain:geohide.ru",
+          "domain:dns.geohide.ru",
+          "domain:ru",
+          "domain:su",
+          "domain:\u0440\u0444",
+          "domain:xn--p1ai",
+          "geosite:category-ru"
+        ],
+        "skipFallback": true
+      },
+      {
+        "address": "https://dns.geohide.ru/dns-query",
+        "queryStrategy": "UseIPv4"
+      },
+      {
+        "address": "https://geohide.ru/dns-query",
+        "queryStrategy": "UseIPv4"
+      },
+      {
+        "address": "tcp://193.233.112.68:53",
+        "queryStrategy": "UseIPv4"
+      },
+      {
+        "address": "193.233.112.68",
+        "queryStrategy": "UseIPv4"
+      }
     ]
   },
   "inbounds": [
@@ -41,11 +92,19 @@
       "tag": "api"
     },
     {
-      "port": 10810,
+      "port": 10808,
       "listen": "127.0.0.1",
       "protocol": "socks",
       "settings": {
         "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "routeOnly": true
       },
       "tag": "socks-in"
     },
@@ -53,6 +112,14 @@
       "port": 10809,
       "listen": "127.0.0.1",
       "protocol": "http",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "routeOnly": true
+      },
       "tag": "http-in"
     }
   ],
@@ -63,11 +130,11 @@
       "settings": {
         "vnext": [
           {
-            "address": "103.31.76.35",
+            "address": "brauneschlange.de",
             "port": 443,
             "users": [
               {
-                "id": "89ee7f45-9c30-43d8-8733-9baa37f5fa3b",
+                "id": "7a7b9fa3-bc06-4e6d-8157-5d0ec3ca07c2",
                 "encryption": "none",
                 "flow": "xtls-rprx-vision"
               }
@@ -81,23 +148,24 @@
         "realitySettings": {
           "show": false,
           "fingerprint": "firefox",
-          "serverName": "google.com",
-          "publicKey": "sN1aNMGh7e98hKy8WIss9nQNdZDoTqUKhtEXWrjuH28",
-          "shortId": "fcc6",
-          "spiderX": "/e89242ff8633b39"
+          "serverName": "goo.gl",
+          "publicKey": "a6yc0YGrgyT91zn9fcJyC9VnWhcnq8j8C2wBPvxGbSc",
+          "shortId": "b4fcbe",
+          "spiderX": "/6ceb3ba376851bf"
         }
       }
     },
     {
       "protocol": "freedom",
-      "tag": "direct",
-      "settings": {
-        "domainStrategy": "UseIP"
-      }
+      "tag": "direct"
     },
     {
       "protocol": "blackhole",
       "tag": "block"
+    },
+    {
+      "protocol": "dns",
+      "tag": "dns-out"
     }
   ],
   "routing": {
@@ -109,6 +177,11 @@
           "api"
         ],
         "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "port": "53",
+        "outboundTag": "dns-out"
       },
       {
         "type": "field",
@@ -137,7 +210,10 @@
           "127.0.0.0/8",
           "217.65.83.0/24",
           "109.202.29.0/24",
-          "geoip:ru"
+          "193.233.112.68/32",
+          "193.233.112.67/32",
+          "46.8.158.6/32",
+          "37.230.192.51/32"
         ]
       },
       {
@@ -158,11 +234,20 @@
           "domain:cplus.ru",
           "domain:teleofis.ru",
           "domain:tpk-stimul.com",
+          "domain:geohide.ru",
+          "domain:dns.geohide.ru",
           "domain:ru",
           "domain:su",
           "domain:\u0440\u0444",
           "domain:xn--p1ai",
           "geosite:category-ru"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "ip": [
+          "geoip:ru"
         ]
       },
       {
