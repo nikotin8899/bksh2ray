@@ -7,9 +7,9 @@
       "uuid": "7a7b9fa3-bc06-4e6d-8157-5d0ec3ca07c2",
       "flow": "xtls-rprx-vision",
       "security": "reality",
-      "sni": "google-analytics.com",
+      "sni": "goo.gl",
       "pbk": "a6yc0YGrgyT91zn9fcJyC9VnWhcnq8j8C2wBPvxGbSc",
-      "sid": "599f0aa9fcab",
+      "sid": "b4fcbe",
       "spx": "/6ceb3ba376851bf",
       "fp": "firefox",
       "type": "tcp"
@@ -21,15 +21,15 @@
       "uuid": "89ee7f45-9c30-43d8-8733-9baa37f5fa3b",
       "flow": "xtls-rprx-vision",
       "security": "reality",
-      "sni": "yt.be",
+      "sni": "google.com",
       "pbk": "sN1aNMGh7e98hKy8WIss9nQNdZDoTqUKhtEXWrjuH28",
-      "sid": "d323449f",
+      "sid": "fcc6",
       "spx": "/e89242ff8633b39",
       "fp": "firefox",
       "type": "tcp"
     }
   ],
-  "active_server_index": 0,
+  "active_server_index": 1,
   "preset_ru": true,
   "system_proxy": true,
   "custom_direct_domains": []

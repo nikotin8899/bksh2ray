@@ -165,7 +165,7 @@ namespace bksh2ray
                 }
             }
 
-            // Direct IPs: corporate subnets, private subnets (RFC 1918, CGNAT, link-local), Russian IPs
+            // Direct IPs: corporate subnets, private subnets (RFC 1918, CGNAT, link-local)
             var directIps = new List<string>
             {
                 "geoip:private",
@@ -176,8 +176,7 @@ namespace bksh2ray
                 "169.254.0.0/16",
                 "127.0.0.0/8",
                 "217.65.83.0/24",
-                "109.202.29.0/24",
-                "geoip:ru"
+                "109.202.29.0/24"
             };
 
             var rules = new List<Dictionary<string, object>>
@@ -185,21 +184,28 @@ namespace bksh2ray
                 new() { ["type"] = "field", ["inboundTag"] = new[] { "api" }, ["outboundTag"] = "api" },
                 new() { ["type"] = "field", ["outboundTag"] = "direct", ["protocol"] = new[] { "bittorrent" } },
                 new() { ["type"] = "field", ["outboundTag"] = "block", ["domain"] = new[] { "geosite:category-ads-all" } },
-                // Corporate, LAN & Private IPs -> Direct
+                // 1. Corporate, LAN & Private IPs -> Direct
                 new()
                 {
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
                     ["ip"] = directIps
                 },
-                // Corporate, Local, RU and Custom Domains -> Direct
+                // 2. Corporate, Local, RU and Custom Domains -> Direct
                 new()
                 {
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
                     ["domain"] = directDomains
                 },
-                // Everything else -> Proxy (VLESS)
+                // 3. Direct connections to Russian IPs (direct IP traffic only)
+                new()
+                {
+                    ["type"] = "field",
+                    ["outboundTag"] = "direct",
+                    ["ip"] = new[] { "geoip:ru" }
+                },
+                // 4. Everything else (YouTube, Gemini, blocked & foreign sites) -> Proxy (VLESS)
                 new()
                 {
                     ["type"] = "field",
@@ -235,15 +241,6 @@ namespace bksh2ray
                         ["statsOutboundDownlink"] = true
                     }
                 },
-                ["dns"] = new Dictionary<string, object>
-                {
-                    ["servers"] = new object[]
-                    {
-                        "localhost",
-                        "77.88.8.8",
-                        "1.1.1.1"
-                    }
-                },
                 ["inbounds"] = new object[]
                 {
                     new Dictionary<string, object>
@@ -273,20 +270,12 @@ namespace bksh2ray
                 ["outbounds"] = new object[]
                 {
                     outboundProxy,
-                    new Dictionary<string, object>
-                    {
-                        ["protocol"] = "freedom",
-                        ["tag"] = "direct",
-                        ["settings"] = new Dictionary<string, object>
-                        {
-                            ["domainStrategy"] = "UseIP"
-                        }
-                    },
+                    new Dictionary<string, object> { ["protocol"] = "freedom", ["tag"] = "direct" },
                     new Dictionary<string, object> { ["protocol"] = "blackhole", ["tag"] = "block" }
                 },
                 ["routing"] = new Dictionary<string, object>
                 {
-                    ["domainStrategy"] = "IPIfNonMatch",
+                    ["domainStrategy"] = "AsIs",
                     ["rules"] = rules
                 }
             };

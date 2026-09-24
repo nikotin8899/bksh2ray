@@ -1,6 +1,6 @@
 {
   "log": {
-    "loglevel": "info"
+    "loglevel": "warning"
   },
   "stats": {},
   "api": {
@@ -22,6 +22,13 @@
       "statsOutboundUplink": true,
       "statsOutboundDownlink": true
     }
+  },
+  "dns": {
+    "servers": [
+      "localhost",
+      "77.88.8.8",
+      "1.1.1.1"
+    ]
   },
   "inbounds": [
     {
@@ -56,11 +63,11 @@
       "settings": {
         "vnext": [
           {
-            "address": "brauneschlange.de",
+            "address": "103.31.76.35",
             "port": 443,
             "users": [
               {
-                "id": "7a7b9fa3-bc06-4e6d-8157-5d0ec3ca07c2",
+                "id": "89ee7f45-9c30-43d8-8733-9baa37f5fa3b",
                 "encryption": "none",
                 "flow": "xtls-rprx-vision"
               }
@@ -74,16 +81,19 @@
         "realitySettings": {
           "show": false,
           "fingerprint": "firefox",
-          "serverName": "google-analytics.com",
-          "publicKey": "a6yc0YGrgyT91zn9fcJyC9VnWhcnq8j8C2wBPvxGbSc",
-          "shortId": "599f0aa9fcab",
-          "spiderX": "/6ceb3ba376851bf"
+          "serverName": "google.com",
+          "publicKey": "sN1aNMGh7e98hKy8WIss9nQNdZDoTqUKhtEXWrjuH28",
+          "shortId": "fcc6",
+          "spiderX": "/e89242ff8633b39"
         }
       }
     },
     {
       "protocol": "freedom",
-      "tag": "direct"
+      "tag": "direct",
+      "settings": {
+        "domainStrategy": "UseIP"
+      }
     },
     {
       "protocol": "blackhole",
@@ -118,24 +128,41 @@
         "type": "field",
         "outboundTag": "direct",
         "ip": [
-          "geoip:private"
-        ]
-      },
-      {
-        "type": "field",
-        "outboundTag": "direct",
-        "domain": [
-          "geosite:private"
-        ]
-      },
-      {
-        "type": "field",
-        "outboundTag": "direct",
-        "domain": [
-          "geosite:category-ru"
-        ],
-        "ip": [
+          "geoip:private",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "100.64.0.0/10",
+          "169.254.0.0/16",
+          "127.0.0.0/8",
+          "217.65.83.0/24",
+          "109.202.29.0/24",
           "geoip:ru"
+        ]
+      },
+      {
+        "type": "field",
+        "outboundTag": "direct",
+        "domain": [
+          "geosite:private",
+          "domain:local",
+          "domain:corp",
+          "domain:lan",
+          "domain:home",
+          "domain:internal",
+          "domain:intra",
+          "domain:sp.local",
+          "domain:rosseti-ural.ru",
+          "domain:mrsk-ural.ru",
+          "domain:rosseti.ru",
+          "domain:cplus.ru",
+          "domain:teleofis.ru",
+          "domain:tpk-stimul.com",
+          "domain:ru",
+          "domain:su",
+          "domain:\u0440\u0444",
+          "domain:xn--p1ai",
+          "geosite:category-ru"
         ]
       },
       {
