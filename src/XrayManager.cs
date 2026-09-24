@@ -128,29 +128,78 @@ namespace bksh2ray
                 ["streamSettings"] = streamSettings
             };
 
-            // Direct domains: default RU + custom domains
-            var directDomains = new List<string> { "geosite:category-ru" };
+            // Direct domains: corporate, private, local, all Russian TLDs + custom domains
+            var directDomains = new List<string>
+            {
+                "geosite:private",
+                "domain:local",
+                "domain:corp",
+                "domain:lan",
+                "domain:home",
+                "domain:internal",
+                "domain:intra",
+                "domain:sp.local",
+                "domain:rosseti-ural.ru",
+                "domain:mrsk-ural.ru",
+                "domain:rosseti.ru",
+                "domain:cplus.ru",
+                "domain:teleofis.ru",
+                "domain:tpk-stimul.com",
+                "domain:ru",
+                "domain:su",
+                "domain:рф",
+                "domain:xn--p1ai",
+                "geosite:category-ru"
+            };
+
             foreach (var d in config.CustomDirectDomains)
             {
-                var clean = d.Trim();
-                if (!string.IsNullOrEmpty(clean) && !directDomains.Contains(clean))
-                    directDomains.Add(clean);
+                var clean = d.Trim().ToLowerInvariant();
+                if (!string.IsNullOrEmpty(clean))
+                {
+                    var rule = clean.StartsWith("domain:") || clean.StartsWith("geosite:") || clean.StartsWith("regexp:")
+                        ? clean
+                        : $"domain:{clean}";
+                    if (!directDomains.Contains(rule))
+                        directDomains.Add(rule);
+                }
             }
+
+            // Direct IPs: corporate subnets, private subnets (RFC 1918, CGNAT, link-local), Russian IPs
+            var directIps = new List<string>
+            {
+                "geoip:private",
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "100.64.0.0/10",
+                "169.254.0.0/16",
+                "127.0.0.0/8",
+                "217.65.83.0/24",
+                "109.202.29.0/24",
+                "geoip:ru"
+            };
 
             var rules = new List<Dictionary<string, object>>
             {
                 new() { ["type"] = "field", ["inboundTag"] = new[] { "api" }, ["outboundTag"] = "api" },
                 new() { ["type"] = "field", ["outboundTag"] = "direct", ["protocol"] = new[] { "bittorrent" } },
                 new() { ["type"] = "field", ["outboundTag"] = "block", ["domain"] = new[] { "geosite:category-ads-all" } },
-                new() { ["type"] = "field", ["outboundTag"] = "direct", ["ip"] = new[] { "geoip:private" } },
-                new() { ["type"] = "field", ["outboundTag"] = "direct", ["domain"] = new[] { "geosite:private" } },
+                // Corporate, LAN & Private IPs -> Direct
                 new()
                 {
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
-                    ["domain"] = directDomains,
-                    ["ip"] = new[] { "geoip:ru" }
+                    ["ip"] = directIps
                 },
+                // Corporate, Local, RU and Custom Domains -> Direct
+                new()
+                {
+                    ["type"] = "field",
+                    ["outboundTag"] = "direct",
+                    ["domain"] = directDomains
+                },
+                // Everything else -> Proxy (VLESS)
                 new()
                 {
                     ["type"] = "field",
@@ -161,7 +210,7 @@ namespace bksh2ray
 
             var xrayConfig = new Dictionary<string, object>
             {
-                ["log"] = new Dictionary<string, object> { ["loglevel"] = "info" },
+                ["log"] = new Dictionary<string, object> { ["loglevel"] = "warning" },
                 ["stats"] = new Dictionary<string, object>(),
                 ["api"] = new Dictionary<string, object>
                 {
@@ -184,6 +233,15 @@ namespace bksh2ray
                         ["statsInboundDownlink"] = true,
                         ["statsOutboundUplink"] = true,
                         ["statsOutboundDownlink"] = true
+                    }
+                },
+                ["dns"] = new Dictionary<string, object>
+                {
+                    ["servers"] = new object[]
+                    {
+                        "localhost",
+                        "77.88.8.8",
+                        "1.1.1.1"
                     }
                 },
                 ["inbounds"] = new object[]
@@ -215,7 +273,15 @@ namespace bksh2ray
                 ["outbounds"] = new object[]
                 {
                     outboundProxy,
-                    new Dictionary<string, object> { ["protocol"] = "freedom", ["tag"] = "direct" },
+                    new Dictionary<string, object>
+                    {
+                        ["protocol"] = "freedom",
+                        ["tag"] = "direct",
+                        ["settings"] = new Dictionary<string, object>
+                        {
+                            ["domainStrategy"] = "UseIP"
+                        }
+                    },
                     new Dictionary<string, object> { ["protocol"] = "blackhole", ["tag"] = "block" }
                 },
                 ["routing"] = new Dictionary<string, object>
@@ -263,7 +329,7 @@ namespace bksh2ray
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
 
-            SystemProxy.SetProxy(true, "127.0.0.1", HttpPort);
+            SystemProxy.SetProxy(true, "127.0.0.1", HttpPort, config.CustomDirectDomains);
 
             _statsCts = new CancellationTokenSource();
             _ = RunStatsWorkerAsync(_statsCts.Token);
@@ -333,6 +399,8 @@ namespace bksh2ray
             _process.Start();
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
+
+            SystemProxy.SetProxy(true, "127.0.0.1", HttpPort, config.CustomDirectDomains);
         }
 
         private async Task RunStatsWorkerAsync(CancellationToken token)

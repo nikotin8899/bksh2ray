@@ -321,7 +321,8 @@ namespace bksh2ray
                             default_ru_enabled = true,
                             default_rules = new[]
                             {
-                                new { name = "Все домены зоны .RU, .РФ, .SU", rule = "geosite:category-ru", desc = "Все государственные и коммерческие сайты РФ" },
+                                new { name = "Корпоративные сети и VPN (Россети, Cplus, Телеофис)", rule = "10.*, 172.16-31.*, *.rosseti-ural.ru, *.local", desc = "Полный обход для корпоративных ресурсов, Active Directory, Wi-Fi и VPN" },
+                                new { name = "Все домены зоны .RU, .РФ, .SU", rule = "domain:ru, domain:рф, domain:su", desc = "Все государственные и коммерческие сайты РФ" },
                                 new { name = "Российские IP-адреса операторов", rule = "geoip:ru", desc = "Все подсети и провайдеры РФ" },
                                 new { name = "Госуслуги, Мос.ру и ведомства", rule = "gosuslugi.ru, mos.ru, nalog.gov.ru", desc = "Государственные сервисы" },
                                 new { name = "Банки РФ (Сбер, Т-Банк, ВТБ, Альфа...)", rule = "sberbank.ru, tbank.ru, vtb.ru, alfabank.ru", desc = "Банковские приложения и онлайн-кабинеты" },
@@ -350,7 +351,11 @@ namespace bksh2ray
                         {
                             _configMgr.Config.CustomDirectDomains.Add(domToAdd);
                             _configMgr.Save();
-                            _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            if (_xrayMgr.IsRunning)
+                            {
+                                SystemProxy.SetProxy(true, "127.0.0.1", _xrayMgr.HttpPort, _configMgr.Config.CustomDirectDomains);
+                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            }
                             result = new { success = true, domains = _configMgr.Config.CustomDirectDomains };
                         }
                         break;
@@ -361,7 +366,11 @@ namespace bksh2ray
                         if (_configMgr.Config.CustomDirectDomains.Remove(domToRem))
                         {
                             _configMgr.Save();
-                            _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            if (_xrayMgr.IsRunning)
+                            {
+                                SystemProxy.SetProxy(true, "127.0.0.1", _xrayMgr.HttpPort, _configMgr.Config.CustomDirectDomains);
+                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            }
                             result = new { success = true, domains = _configMgr.Config.CustomDirectDomains };
                         }
                         else
