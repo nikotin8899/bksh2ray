@@ -39,11 +39,26 @@ namespace bksh2ray
 
         public static int FindFreePort(int startPort, int maxTries = 50)
         {
+            var activeListeners = new HashSet<int>();
+            try
+            {
+                var endpoints = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners();
+                foreach (var ep in endpoints)
+                {
+                    activeListeners.Add(ep.Port);
+                }
+            }
+            catch { }
+
             for (int p = startPort; p < startPort + maxTries; p++)
             {
+                if (activeListeners.Contains(p))
+                    continue;
+
                 try
                 {
                     var listener = new TcpListener(IPAddress.Loopback, p);
+                    listener.ExclusiveAddressUse = true;
                     listener.Start();
                     listener.Stop();
                     return p;
@@ -53,7 +68,7 @@ namespace bksh2ray
                     // Port occupied, try next
                 }
             }
-            return startPort;
+            return startPort + maxTries;
         }
 
         public void GenerateConfig(AppConfig config)

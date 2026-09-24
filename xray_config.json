@@ -41,7 +41,7 @@
       "tag": "api"
     },
     {
-      "port": 10808,
+      "port": 10810,
       "listen": "127.0.0.1",
       "protocol": "socks",
       "settings": {
