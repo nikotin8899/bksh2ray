@@ -6,3 +6,5 @@ src/publish-single/
 publish-single/
 *.tmp
 *.old
+config.json
+singbox_config.json

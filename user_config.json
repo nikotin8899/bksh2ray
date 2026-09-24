@@ -32,6 +32,6 @@
   "active_server_index": 0,
   "preset_ru": true,
   "system_proxy": true,
-  "mode": "proxy",
+  "mode": "tun",
   "custom_direct_domains": []
 }
