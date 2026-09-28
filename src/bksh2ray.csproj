@@ -10,9 +10,9 @@
     <RootNamespace>bksh2ray</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.1.3</Version>
-    <FileVersion>0.1.3</FileVersion>
-    <AssemblyVersion>0.1.3</AssemblyVersion>
+    <Version>0.1.4</Version>
+    <FileVersion>0.1.4</FileVersion>
+    <AssemblyVersion>0.1.4</AssemblyVersion>
     <NoWarn>MSB3277</NoWarn>
   </PropertyGroup>
 

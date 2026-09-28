@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Threading;
@@ -19,6 +20,8 @@ namespace bksh2ray
         private readonly string _singBoxExe;
         private readonly string _configFile;
         private readonly string _singBoxConfigFile;
+
+        private readonly List<string> _addedRoutes = new();
 
         private Process? _process;
         private Process? _singBoxProcess;
@@ -215,6 +218,36 @@ namespace bksh2ray
                 new() { ["type"] = "field", ["port"] = "443", ["network"] = "udp", ["outboundTag"] = "block" },
                 new() { ["type"] = "field", ["outboundTag"] = "direct", ["protocol"] = new[] { "bittorrent" } },
                 new() { ["type"] = "field", ["outboundTag"] = "block", ["domain"] = new[] { "geosite:category-ads-all" } },
+                // Explicit proxy domains (Google, YouTube, Gemini, AI, developer tools)
+                // MUST go through proxy - guaranteed to never route to direct or geoip:ru (prevents real IP leaks)
+                new()
+                {
+                    ["type"] = "field",
+                    ["outboundTag"] = "proxy",
+                    ["domain"] = new[]
+                    {
+                        "geosite:google",
+                        "geosite:youtube",
+                        "geosite:openai",
+                        "geosite:anthropic",
+                        "domain:googleapis.com",
+                        "domain:google.com",
+                        "domain:gstatic.com",
+                        "domain:youtube.com",
+                        "domain:googlevideo.com",
+                        "domain:ytimg.com",
+                        "domain:ggpht.com",
+                        "domain:gvt1.com",
+                        "domain:gvt2.com",
+                        "domain:gemini.google.com",
+                        "domain:openai.com",
+                        "domain:anthropic.com",
+                        "domain:claude.ai",
+                        "domain:cursor.sh",
+                        "domain:github.com",
+                        "domain:githubusercontent.com"
+                    }
+                },
                 // 1. Corporate, LAN & Private IPs, GeoHide IPs -> Direct
                 new()
                 {
@@ -484,7 +517,7 @@ namespace bksh2ray
                 ["log"] = new Dictionary<string, object>
                 {
                     ["disabled"] = false,
-                    ["level"] = "warn",
+                    ["level"] = "info",
                     ["timestamp"] = true
                 },
                 ["dns"] = new Dictionary<string, object>
@@ -617,6 +650,102 @@ namespace bksh2ray
             }
         }
 
+        public static string? GetPhysicalDefaultGateway()
+        {
+            try
+            {
+                foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                    if (ni.Name.IndexOf("tun", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    if (ni.Description.IndexOf("tun", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+
+                    var props = ni.GetIPProperties();
+                    foreach (var gw in props.GatewayAddresses)
+                    {
+                        if (gw.Address.AddressFamily == AddressFamily.InterNetwork &&
+                            !gw.Address.Equals(IPAddress.Any) &&
+                            !gw.Address.ToString().StartsWith("172.18."))
+                        {
+                            return gw.Address.ToString();
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private void AddHostRoute(string destination, string gateway, string mask = "255.255.255.255")
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "route.exe",
+                    Arguments = $"add {destination} mask {mask} {gateway} metric 1",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using var p = Process.Start(psi);
+                p?.WaitForExit(1000);
+                lock (_addedRoutes)
+                {
+                    if (!_addedRoutes.Contains(destination))
+                        _addedRoutes.Add(destination);
+                }
+            }
+            catch { }
+        }
+
+        private void RemoveHostRoutes()
+        {
+            lock (_addedRoutes)
+            {
+                foreach (var dest in _addedRoutes)
+                {
+                    try
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = "route.exe",
+                            Arguments = $"delete {dest}",
+                            CreateNoWindow = true,
+                            UseShellExecute = false
+                        };
+                        using var p = Process.Start(psi);
+                        p?.WaitForExit(1000);
+                    }
+                    catch { }
+                }
+                _addedRoutes.Clear();
+            }
+        }
+
+        public static void WaitForTunAdapterCleanup()
+        {
+            try
+            {
+                for (int i = 0; i < 15; i++)
+                {
+                    bool hasTun = false;
+                    foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+                    {
+                        if (ni.Name.IndexOf("singbox_tun", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            ni.Description.IndexOf("sing-tun", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            hasTun = true;
+                            break;
+                        }
+                    }
+                    if (!hasTun) break;
+                    Thread.Sleep(200);
+                }
+            }
+            catch { }
+        }
+
         public static void KillOrphanProcesses()
         {
             foreach (var name in new[] { "sing-box", "xray" })
@@ -635,6 +764,8 @@ namespace bksh2ray
                 }
                 catch { }
             }
+
+            WaitForTunAdapterCleanup();
         }
 
         private bool StartProxy(AppConfig config)
@@ -643,6 +774,7 @@ namespace bksh2ray
                 throw new FileNotFoundException($"xray.exe не найден в папке bin: {_xrayExe}");
 
             KillOrphanProcesses();
+            RemoveHostRoutes();
 
             GenerateConfig(config);
 
@@ -711,7 +843,47 @@ namespace bksh2ray
             }
 
             KillOrphanProcesses();
-            Thread.Sleep(800); // Allow Windows NDIS & Wintun driver to release device handles
+            RemoveHostRoutes();
+
+            // Add static host routes to physical default gateway to prevent outbound traffic looping into singbox_tun
+            var gateway = GetPhysicalDefaultGateway();
+            if (!string.IsNullOrEmpty(gateway))
+            {
+                if (config.Servers != null)
+                {
+                    foreach (var s in config.Servers)
+                    {
+                        if (string.IsNullOrWhiteSpace(s.Server)) continue;
+                        var host = s.Server.Trim();
+                        if (IPAddress.TryParse(host, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
+                        {
+                            AddHostRoute(ip.ToString(), gateway, "255.255.255.255");
+                        }
+                        else
+                        {
+                            try
+                            {
+                                foreach (var a in Dns.GetHostAddresses(host))
+                                {
+                                    if (a.AddressFamily == AddressFamily.InterNetwork)
+                                    {
+                                        AddHostRoute(a.ToString(), gateway, "255.255.255.255");
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                // Subnets for GeoHide DNS and corporate networks
+                AddHostRoute("193.233.112.0", gateway, "255.255.255.0");
+                AddHostRoute("45.155.204.0", gateway, "255.255.255.0");
+                AddHostRoute("46.8.158.0", gateway, "255.255.255.0");
+                AddHostRoute("37.230.192.0", gateway, "255.255.255.0");
+                AddHostRoute("217.65.83.0", gateway, "255.255.255.0");
+                AddHostRoute("109.202.29.0", gateway, "255.255.255.0");
+            }
 
             // 1. Generate Xray config and start Xray backend to handle VLESS and GeoHide DNS
             GenerateConfig(config);
@@ -767,7 +939,8 @@ namespace bksh2ray
                         }
                     }
                     catch { }
-                    Thread.Sleep(1500);
+                    WaitForTunAdapterCleanup();
+                    Thread.Sleep(1000);
                 }
 
                 // Verify Xray backend is still running; restart if needed
@@ -783,30 +956,51 @@ namespace bksh2ray
 
                 try
                 {
+                    var tunReadyEvent = new ManualResetEventSlim(false);
+
                     _singBoxProcess = new Process { StartInfo = sbStartInfo, EnableRaisingEvents = true };
-                    _singBoxProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
-                    _singBoxProcess.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
+                    _singBoxProcess.OutputDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            LogReceived?.Invoke("[TUN] " + e.Data);
+                            if (e.Data.Contains("started at") || e.Data.Contains("sing-box started"))
+                            {
+                                tunReadyEvent.Set();
+                            }
+                        }
+                    };
+                    _singBoxProcess.ErrorDataReceived += (s, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            LogReceived?.Invoke("[TUN] " + e.Data);
+                            if (e.Data.Contains("started at") || e.Data.Contains("sing-box started"))
+                            {
+                                tunReadyEvent.Set();
+                            }
+                        }
+                    };
 
                     _singBoxProcess.Start();
                     _singBoxProcess.BeginOutputReadLine();
                     _singBoxProcess.BeginErrorReadLine();
 
-                    // Check if it stays alive (give Wintun up to 3.5s to initialize adapter)
-                    bool earlyCrash = false;
-                    for (int check = 0; check < 35; check++)
-                    {
-                        if (_singBoxProcess.HasExited)
-                        {
-                            earlyCrash = true;
-                            break;
-                        }
-                        Thread.Sleep(100);
-                    }
-
-                    if (!earlyCrash)
+                    // Wait up to 6 seconds for sing-box to signal TUN adapter initialization
+                    bool ready = tunReadyEvent.Wait(6000);
+                    if (ready && !_singBoxProcess.HasExited)
                     {
                         startedSuccessfully = true;
                         break;
+                    }
+                    else if (!_singBoxProcess.HasExited)
+                    {
+                        Thread.Sleep(1000);
+                        if (!_singBoxProcess.HasExited)
+                        {
+                            startedSuccessfully = true;
+                            break;
+                        }
                     }
                 }
                 catch
@@ -840,6 +1034,7 @@ namespace bksh2ray
         public void Stop()
         {
             SystemProxy.SetProxy(false);
+            RemoveHostRoutes();
 
             _statsCts?.Cancel();
             _statsCts = null;

@@ -294,7 +294,7 @@ namespace bksh2ray
 
                             if (_xrayMgr.IsRunning && _configMgr.Config.ActiveServerIndex == editIdx)
                             {
-                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                                await Task.Run(() => _xrayMgr.RestartIfRunning(_configMgr.Config));
                             }
                             result = new { success = true };
                         }
@@ -310,7 +310,7 @@ namespace bksh2ray
                         _configMgr.Save();
                         if (_xrayMgr.IsRunning)
                         {
-                            _xrayMgr.RestartIfRunning(_configMgr.Config);
+                            await Task.Run(() => _xrayMgr.RestartIfRunning(_configMgr.Config));
                         }
                         result = new { success = true, mode = newMode, is_running = _xrayMgr.IsRunning };
                         break;
