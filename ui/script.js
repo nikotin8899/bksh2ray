@@ -374,14 +374,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     btnToggle.addEventListener('click', async () => {
-        if (isRunning) {
-            const res = await window.pywebview.api.stop_proxy();
-            if (res.success) await updateConnectionState();
-            else showToast(res.error);
-        } else {
-            const res = await window.pywebview.api.start_proxy();
-            if (res.success) await updateConnectionState();
-            else showToast(res.error);
+        if (btnToggle.disabled) return;
+        btnToggle.disabled = true;
+        try {
+            if (isRunning) {
+                const res = await window.pywebview.api.stop_proxy();
+                if (res.success) await updateConnectionState();
+                else showToast(res.error);
+            } else {
+                const res = await window.pywebview.api.start_proxy();
+                if (res.success) await updateConnectionState();
+                else showToast(res.error);
+            }
+        } finally {
+            btnToggle.disabled = false;
         }
     });
 
@@ -666,7 +672,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (statusModeInfo) {
             if (currentMode === 'tun') {
-                statusModeInfo.textContent = 'Режим: TUN (singbox_tun)';
+                statusModeInfo.textContent = 'Режим: TUN (сетевой адаптер)';
             } else {
                 statusModeInfo.textContent = '127.0.0.1:10809 (SOCKS5: 10808)';
             }
@@ -713,8 +719,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!Array.isArray(lines) || lines.length === 0) return;
         const frag = document.createDocumentFragment();
         for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
+            let line = lines[i];
             if (!line) continue;
+            line = line.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+            if (!line.trim()) continue;
             const div = document.createElement('div');
             div.className = 'log-line';
             const l = line.toLowerCase();
@@ -725,8 +733,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         logOutput.appendChild(frag);
 
-        // Keep DOM lightweight by pruning oldest logs if over 300 entries
-        while (logOutput.children.length > 300) {
+        // Keep DOM lightweight by pruning oldest logs if over 500 entries
+        while (logOutput.children.length > 500) {
             logOutput.removeChild(logOutput.firstChild);
         }
 

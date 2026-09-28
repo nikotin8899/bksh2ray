@@ -27,6 +27,19 @@ namespace bksh2ray
         private Process? _singBoxProcess;
         private CancellationTokenSource? _statsCts;
 
+        private static int _tunSessionCounter = Environment.TickCount & 0x7FFFFFFF;
+        private string _currentTunInterface = "singbox_tun_0";
+        private readonly object _startStopLock = new();
+
+        private static readonly System.Text.RegularExpressions.Regex AnsiRegex =
+            new(@"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        public static string StripAnsi(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            return AnsiRegex.Replace(text, "");
+        }
+
         public bool IsRunning => _process != null && !_process.HasExited;
         public string CurrentMode { get; private set; } = "proxy";
         public int SocksPort { get; private set; } = 10808;
@@ -414,7 +427,7 @@ namespace bksh2ray
             }
         }
 
-        public void GenerateSingBoxConfig(AppConfig config)
+        public void GenerateSingBoxConfig(AppConfig config, string interfaceName = "singbox_tun_0", string tunAddress = "172.18.0.1/30", string tunDns = "172.18.0.2")
         {
             var directDomainSuffixes = new List<string>
             {
@@ -566,9 +579,9 @@ namespace bksh2ray
                     {
                         ["type"] = "tun",
                         ["tag"] = "tun-in",
-                        ["interface_name"] = "singbox_tun",
-                        ["address"] = new[] { "172.18.0.1/30" },
-                        ["dns_address"] = new[] { "172.18.0.2" },
+                        ["interface_name"] = interfaceName,
+                        ["address"] = new[] { tunAddress },
+                        ["dns_address"] = new[] { tunDns },
                         ["dns_mode"] = "hijack",
                         ["auto_route"] = true,
                         ["strict_route"] = false,
@@ -637,16 +650,19 @@ namespace bksh2ray
 
         public bool Start(AppConfig config)
         {
-            if (IsRunning) return true;
+            lock (_startStopLock)
+            {
+                if (IsRunning) return true;
 
-            CurrentMode = (config.Mode ?? "proxy").ToLowerInvariant();
-            if (CurrentMode == "tun")
-            {
-                return StartTun(config);
-            }
-            else
-            {
-                return StartProxy(config);
+                CurrentMode = (config.Mode ?? "proxy").ToLowerInvariant();
+                if (CurrentMode == "tun")
+                {
+                    return StartTun(config);
+                }
+                else
+                {
+                    return StartProxy(config);
+                }
             }
         }
 
@@ -723,24 +739,35 @@ namespace bksh2ray
             }
         }
 
-        public static void WaitForTunAdapterCleanup()
+        public static void WaitForTunAdapterCleanup(string? specificName = null, int maxChecks = 5)
         {
             try
             {
-                for (int i = 0; i < 15; i++)
+                for (int i = 0; i < maxChecks; i++)
                 {
                     bool hasTun = false;
                     foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
                     {
-                        if (ni.Name.IndexOf("singbox_tun", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                            ni.Description.IndexOf("sing-tun", StringComparison.OrdinalIgnoreCase) >= 0)
+                        if (!string.IsNullOrEmpty(specificName))
                         {
-                            hasTun = true;
-                            break;
+                            if (string.Equals(ni.Name, specificName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                hasTun = true;
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            if (ni.Name.IndexOf("singbox_tun", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                ni.Description.IndexOf("sing-tun", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                hasTun = true;
+                                break;
+                            }
                         }
                     }
                     if (!hasTun) break;
-                    Thread.Sleep(200);
+                    Thread.Sleep(100);
                 }
             }
             catch { }
@@ -764,8 +791,6 @@ namespace bksh2ray
                 }
                 catch { }
             }
-
-            WaitForTunAdapterCleanup();
         }
 
         private bool StartProxy(AppConfig config)
@@ -791,8 +816,8 @@ namespace bksh2ray
             startInfo.EnvironmentVariables["xray.location.asset"] = _binDir;
 
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-            _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
-            _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
+            _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(StripAnsi(e.Data)); };
+            _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(StripAnsi(e.Data)); };
             _process.Exited += (s, e) =>
             {
                 SystemProxy.SetProxy(false);
@@ -901,21 +926,28 @@ namespace bksh2ray
             xrayStartInfo.EnvironmentVariables["xray.location.asset"] = _binDir;
 
             _process = new Process { StartInfo = xrayStartInfo, EnableRaisingEvents = true };
-            _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
-            _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
+            _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(StripAnsi(e.Data)); };
+            _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(StripAnsi(e.Data)); };
 
             _process.Start();
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
             Thread.Sleep(300);
 
-            // 2. Generate Sing-box TUN config (inbound: tun singbox_tun, outbound: socks5 -> 127.0.0.1:SocksPort)
-            GenerateSingBoxConfig(config);
+            // 2. Generate Sing-box TUN config with rotating adapter name and subnet to prevent Wintun NDIS teardown collision
+            int sessionIndex = Interlocked.Increment(ref _tunSessionCounter);
+            int slot = sessionIndex % 4;
+            _currentTunInterface = $"singbox_tun_{slot}";
+            string tunIp = $"172.18.{slot * 4}.1/30";
+            string tunDns = $"172.18.{slot * 4}.2";
+
+            WaitForTunAdapterCleanup(_currentTunInterface, 3);
+            GenerateSingBoxConfig(config, _currentTunInterface, tunIp, tunDns);
 
             var sbStartInfo = new ProcessStartInfo
             {
                 FileName = _singBoxExe,
-                Arguments = $"run -c \"{_singBoxConfigFile}\"",
+                Arguments = $"run --disable-color -c \"{_singBoxConfigFile}\"",
                 WorkingDirectory = _appDir,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
@@ -939,8 +971,14 @@ namespace bksh2ray
                         }
                     }
                     catch { }
-                    WaitForTunAdapterCleanup();
-                    Thread.Sleep(1000);
+
+                    sessionIndex = Interlocked.Increment(ref _tunSessionCounter);
+                    slot = sessionIndex % 4;
+                    _currentTunInterface = $"singbox_tun_{slot}";
+                    tunIp = $"172.18.{slot * 4}.1/30";
+                    tunDns = $"172.18.{slot * 4}.2";
+                    GenerateSingBoxConfig(config, _currentTunInterface, tunIp, tunDns);
+                    Thread.Sleep(500);
                 }
 
                 // Verify Xray backend is still running; restart if needed
@@ -963,8 +1001,15 @@ namespace bksh2ray
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            LogReceived?.Invoke("[TUN] " + e.Data);
-                            if (e.Data.Contains("started at") || e.Data.Contains("sing-box started"))
+                            var clean = StripAnsi(e.Data);
+                            LogReceived?.Invoke("[TUN] " + clean);
+                            if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("inbound/tun", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("inbound DNS packet", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("router:", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("interface created", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("open inbound/tun", StringComparison.OrdinalIgnoreCase))
                             {
                                 tunReadyEvent.Set();
                             }
@@ -974,8 +1019,15 @@ namespace bksh2ray
                     {
                         if (!string.IsNullOrEmpty(e.Data))
                         {
-                            LogReceived?.Invoke("[TUN] " + e.Data);
-                            if (e.Data.Contains("started at") || e.Data.Contains("sing-box started"))
+                            var clean = StripAnsi(e.Data);
+                            LogReceived?.Invoke("[TUN] " + clean);
+                            if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("inbound/tun", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("inbound DNS packet", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("router:", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("interface created", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("open inbound/tun", StringComparison.OrdinalIgnoreCase))
                             {
                                 tunReadyEvent.Set();
                             }
@@ -1026,51 +1078,54 @@ namespace bksh2ray
             _statsCts = new CancellationTokenSource();
             _ = RunStatsWorkerAsync(_statsCts.Token);
 
-            LogReceived?.Invoke("[TUN] Адаптер singbox_tun запущен, трафик маршрутизируется через VLESS");
+            LogReceived?.Invoke($"[TUN] Адаптер {_currentTunInterface} запущен, трафик маршрутизируется через VLESS");
             StateChanged?.Invoke();
             return true;
         }
 
         public void Stop()
         {
-            SystemProxy.SetProxy(false);
-            RemoveHostRoutes();
-
-            _statsCts?.Cancel();
-            _statsCts = null;
-
-            if (_singBoxProcess != null && !_singBoxProcess.HasExited)
+            lock (_startStopLock)
             {
-                try
+                SystemProxy.SetProxy(false);
+                RemoveHostRoutes();
+
+                _statsCts?.Cancel();
+                _statsCts = null;
+
+                if (_singBoxProcess != null && !_singBoxProcess.HasExited)
                 {
-                    _singBoxProcess.Kill();
-                    _singBoxProcess.WaitForExit(1500);
+                    try
+                    {
+                        _singBoxProcess.Kill();
+                        _singBoxProcess.WaitForExit(1000);
+                    }
+                    catch { }
                 }
-                catch { }
-            }
-            _singBoxProcess = null;
+                _singBoxProcess = null;
 
-            if (_process != null && !_process.HasExited)
-            {
-                try
+                if (_process != null && !_process.HasExited)
                 {
-                    _process.Kill();
-                    _process.WaitForExit(1500);
+                    try
+                    {
+                        _process.Kill();
+                        _process.WaitForExit(1000);
+                    }
+                    catch { }
                 }
-                catch { }
+                _process = null;
+
+                KillOrphanProcesses();
+
+                StateChanged?.Invoke();
             }
-            _process = null;
-
-            KillOrphanProcesses();
-
-            StateChanged?.Invoke();
         }
 
         public void RestartIfRunning(AppConfig config)
         {
             if (!IsRunning) return;
             Stop();
-            Thread.Sleep(1500);
+            Thread.Sleep(500);
             Start(config);
         }
 

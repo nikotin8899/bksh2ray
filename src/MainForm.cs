@@ -73,15 +73,17 @@ namespace bksh2ray
             // Event handlers
             _xrayMgr.LogReceived += (line) =>
             {
-                _logQueue.Enqueue(line);
+                var clean = StripAnsi(line);
+                if (!string.IsNullOrWhiteSpace(clean))
+                    _logQueue.Enqueue(clean);
             };
 
-            _logFlushTimer = new System.Windows.Forms.Timer { Interval = 150 };
+            _logFlushTimer = new System.Windows.Forms.Timer { Interval = 40 };
             _logFlushTimer.Tick += (s, e) =>
             {
                 if (!IsHandleCreated || IsDisposed || _webView.CoreWebView2 == null) return;
                 var batch = new List<string>();
-                while (_logQueue.TryDequeue(out var logLine) && batch.Count < 40)
+                while (_logQueue.TryDequeue(out var logLine) && batch.Count < 200)
                 {
                     batch.Add(logLine);
                 }
@@ -439,7 +441,7 @@ namespace bksh2ray
                             if (_xrayMgr.IsRunning)
                             {
                                 SystemProxy.SetProxy(true, "127.0.0.1", _xrayMgr.HttpPort, _configMgr.Config.CustomDirectDomains);
-                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                                await Task.Run(() => _xrayMgr.RestartIfRunning(_configMgr.Config));
                             }
                             result = new { success = true, domains = _configMgr.Config.CustomDirectDomains };
                         }
@@ -454,7 +456,7 @@ namespace bksh2ray
                             if (_xrayMgr.IsRunning)
                             {
                                 SystemProxy.SetProxy(true, "127.0.0.1", _xrayMgr.HttpPort, _configMgr.Config.CustomDirectDomains);
-                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                                await Task.Run(() => _xrayMgr.RestartIfRunning(_configMgr.Config));
                             }
                             result = new { success = true, domains = _configMgr.Config.CustomDirectDomains };
                         }
@@ -627,6 +629,15 @@ namespace bksh2ray
             catch { }
 
             return SystemIcons.Application;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex AnsiRegex =
+            new(@"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        public static string StripAnsi(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            return AnsiRegex.Replace(text, "");
         }
     }
 }
