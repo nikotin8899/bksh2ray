@@ -586,8 +586,8 @@ namespace bksh2ray
                         ["type"] = "tun",
                         ["tag"] = "tun-in",
                         ["interface_name"] = interfaceName,
-                        ["address"] = new[] { tunAddress, "fdfe:dcba:9876::1/126" },
-                        ["dns_address"] = new[] { tunDns, "fdfe:dcba:9876::2" },
+                        ["address"] = new[] { tunAddress },
+                        ["dns_address"] = new[] { tunDns },
                         ["dns_mode"] = "hijack",
                         ["auto_route"] = true,
                         ["strict_route"] = false,
@@ -629,12 +629,6 @@ namespace bksh2ray
                             ["network"] = "udp",
                             ["outbound"] = "block"
                         },
-                        // Block IPv6 to prevent real IPv6 location leak outside TUN
-                        new Dictionary<string, object>
-                        {
-                            ["ip_cidr"] = new[] { "::/0" },
-                            ["outbound"] = "block"
-                        },
                         // Explicit proxy domains (Google, Gemini, Cloud AI Companion, OpenAI, Claude, Cursor, GitHub)
                         new Dictionary<string, object>
                         {
@@ -646,7 +640,15 @@ namespace bksh2ray
                                 "googlevideo.com",
                                 "youtube.com",
                                 "ytimg.com",
+                                "ggpht.com",
+                                "gvt1.com",
+                                "gvt2.com",
                                 "gemini.google.com",
+                                "cloudaicompanion.googleapis.com",
+                                "deepmind.google",
+                                "deepmind.com",
+                                "cloud.google.com",
+                                "googlecloud.com",
                                 "googleusercontent.com",
                                 "1e100.net",
                                 "g.co",
@@ -657,7 +659,8 @@ namespace bksh2ray
                                 "cursor.sh",
                                 "cursor.com",
                                 "github.com",
-                                "githubusercontent.com"
+                                "githubusercontent.com",
+                                "githubassets.com"
                             },
                             ["outbound"] = "proxy"
                         },
@@ -1043,11 +1046,10 @@ namespace bksh2ray
                             LogReceived?.Invoke("[TUN] " + clean);
                             if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
                                 clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("inbound/tun", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("inbound connection", StringComparison.OrdinalIgnoreCase) ||
                                 clean.Contains("inbound DNS packet", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("router:", StringComparison.OrdinalIgnoreCase) ||
                                 clean.Contains("interface created", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("open inbound/tun", StringComparison.OrdinalIgnoreCase))
+                                clean.Contains("router: completed", StringComparison.OrdinalIgnoreCase))
                             {
                                 tunReadyEvent.Set();
                             }
@@ -1061,11 +1063,10 @@ namespace bksh2ray
                             LogReceived?.Invoke("[TUN] " + clean);
                             if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
                                 clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("inbound/tun", StringComparison.OrdinalIgnoreCase) ||
+                                clean.Contains("inbound connection", StringComparison.OrdinalIgnoreCase) ||
                                 clean.Contains("inbound DNS packet", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("router:", StringComparison.OrdinalIgnoreCase) ||
                                 clean.Contains("interface created", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("open inbound/tun", StringComparison.OrdinalIgnoreCase))
+                                clean.Contains("router: completed", StringComparison.OrdinalIgnoreCase))
                             {
                                 tunReadyEvent.Set();
                             }
@@ -1076,8 +1077,8 @@ namespace bksh2ray
                     _singBoxProcess.BeginOutputReadLine();
                     _singBoxProcess.BeginErrorReadLine();
 
-                    // Wait up to 6 seconds for sing-box to signal TUN adapter initialization
-                    bool ready = tunReadyEvent.Wait(6000);
+                    // Wait up to 8 seconds for sing-box to signal TUN adapter initialization
+                    bool ready = tunReadyEvent.Wait(8000);
                     if (ready && !_singBoxProcess.HasExited)
                     {
                         startedSuccessfully = true;
