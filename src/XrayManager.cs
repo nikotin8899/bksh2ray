@@ -671,40 +671,78 @@ namespace bksh2ray
                 RedirectStandardError = true
             };
 
-            try
+            bool startedSuccessfully = false;
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                _singBoxProcess = new Process { StartInfo = sbStartInfo, EnableRaisingEvents = true };
-                _singBoxProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
-                _singBoxProcess.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
-                _singBoxProcess.Exited += (s, e) =>
+                if (attempt > 1)
                 {
-                    Stop();
-                };
+                    LogReceived?.Invoke("[TUN] Ожидание освобождения сетевого адаптера драйвером Wintun...");
+                    KillOrphanProcesses();
+                    Thread.Sleep(2000);
+                }
+                else
+                {
+                    Thread.Sleep(1000);
+                }
 
-                _singBoxProcess.Start();
-                _singBoxProcess.BeginOutputReadLine();
-                _singBoxProcess.BeginErrorReadLine();
+                try
+                {
+                    _singBoxProcess = new Process { StartInfo = sbStartInfo, EnableRaisingEvents = true };
+                    _singBoxProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
+                    _singBoxProcess.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
+                    _singBoxProcess.Exited += (s, e) =>
+                    {
+                        Stop();
+                    };
 
-                // Start tailing singbox.log for real-time TUN events
-                _tunLogCts = new CancellationTokenSource();
-                StartTunLogReader(Path.Combine(_appDir, "singbox.log"), _tunLogCts.Token);
+                    _singBoxProcess.Start();
+                    _singBoxProcess.BeginOutputReadLine();
+                    _singBoxProcess.BeginErrorReadLine();
 
-                // Disable system proxy (transparent TUN routing)
-                SystemProxy.SetProxy(false);
+                    // Check if it stays alive or immediately crashes due to Wintun lock
+                    bool earlyCrash = false;
+                    for (int check = 0; check < 12; check++)
+                    {
+                        if (_singBoxProcess.HasExited)
+                        {
+                            earlyCrash = true;
+                            break;
+                        }
+                        Thread.Sleep(100);
+                    }
 
-                // Start speedometer worker (queries Xray stats API)
-                _statsCts = new CancellationTokenSource();
-                _ = RunStatsWorkerAsync(_statsCts.Token);
-
-                LogReceived?.Invoke("[TUN] Адаптер singbox_tun запущен, трафик маршрутизируется через VLESS");
-                StateChanged?.Invoke();
-                return true;
+                    if (!earlyCrash)
+                    {
+                        startedSuccessfully = true;
+                        break;
+                    }
+                }
+                catch
+                {
+                    if (attempt == 2) throw;
+                }
             }
-            catch
+
+            if (!startedSuccessfully)
             {
                 Stop();
-                throw;
+                throw new InvalidOperationException("Не удалось инициализировать виртуальный адаптер TUN (таймаут драйвера Wintun). Попробуйте еще раз через несколько секунд.");
             }
+
+            // Start tailing singbox.log for real-time TUN events
+            _tunLogCts = new CancellationTokenSource();
+            StartTunLogReader(Path.Combine(_appDir, "singbox.log"), _tunLogCts.Token);
+
+            // Disable system proxy (transparent TUN routing)
+            SystemProxy.SetProxy(false);
+
+            // Start speedometer worker (queries Xray stats API)
+            _statsCts = new CancellationTokenSource();
+            _ = RunStatsWorkerAsync(_statsCts.Token);
+
+            LogReceived?.Invoke("[TUN] Адаптер singbox_tun запущен, трафик маршрутизируется через VLESS");
+            StateChanged?.Invoke();
+            return true;
         }
 
         private void StartTunLogReader(string logPath, CancellationToken token)
@@ -789,7 +827,7 @@ namespace bksh2ray
         {
             if (!IsRunning) return;
             Stop();
-            Thread.Sleep(500);
+            Thread.Sleep(1500);
             Start(config);
         }
 
