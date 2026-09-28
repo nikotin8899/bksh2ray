@@ -709,19 +709,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    window.addLog = function(line) {
-        const div = document.createElement('div');
-        div.className = 'log-line';
-        
-        if (line.toLowerCase().includes('error')) div.classList.add('error');
-        else if (line.toLowerCase().includes('warn')) div.classList.add('warn');
-        
-        div.textContent = line;
-        logOutput.appendChild(div);
-        
-        // Auto scroll to bottom
+    window.addLogs = function(lines) {
+        if (!Array.isArray(lines) || lines.length === 0) return;
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line) continue;
+            const div = document.createElement('div');
+            div.className = 'log-line';
+            const l = line.toLowerCase();
+            if (l.includes('error') || l.includes('fatal')) div.classList.add('error');
+            else if (l.includes('warn')) div.classList.add('warn');
+            div.textContent = line;
+            frag.appendChild(div);
+        }
+        logOutput.appendChild(frag);
+
+        // Keep DOM lightweight by pruning oldest logs if over 300 entries
+        while (logOutput.children.length > 300) {
+            logOutput.removeChild(logOutput.firstChild);
+        }
+
         logOutput.scrollTop = logOutput.scrollHeight;
-    }
+    };
+
+    window.addLog = function(line) {
+        window.addLogs([line]);
+    };
     
     // --- Resizer logic ---
     const resizer = document.getElementById('log-resizer');

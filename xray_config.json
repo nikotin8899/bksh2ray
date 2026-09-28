@@ -130,11 +130,11 @@
       "settings": {
         "vnext": [
           {
-            "address": "brauneschlange.de",
+            "address": "103.31.76.35",
             "port": 443,
             "users": [
               {
-                "id": "7a7b9fa3-bc06-4e6d-8157-5d0ec3ca07c2",
+                "id": "89ee7f45-9c30-43d8-8733-9baa37f5fa3b",
                 "encryption": "none",
                 "flow": "xtls-rprx-vision"
               }
@@ -148,10 +148,10 @@
         "realitySettings": {
           "show": false,
           "fingerprint": "firefox",
-          "serverName": "goo.gl",
-          "publicKey": "a6yc0YGrgyT91zn9fcJyC9VnWhcnq8j8C2wBPvxGbSc",
-          "shortId": "b4fcbe",
-          "spiderX": "/6ceb3ba376851bf"
+          "serverName": "google.com",
+          "publicKey": "sN1aNMGh7e98hKy8WIss9nQNdZDoTqUKhtEXWrjuH28",
+          "shortId": "fcc6",
+          "spiderX": "/e89242ff8633b39"
         }
       }
     },

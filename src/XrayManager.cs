@@ -23,7 +23,6 @@ namespace bksh2ray
         private Process? _process;
         private Process? _singBoxProcess;
         private CancellationTokenSource? _statsCts;
-        private CancellationTokenSource? _tunLogCts;
 
         public bool IsRunning => _process != null && !_process.HasExited;
         public string CurrentMode { get; private set; } = "proxy";
@@ -202,10 +201,10 @@ namespace bksh2ray
                 "127.0.0.0/8",
                 "217.65.83.0/24",
                 "109.202.29.0/24",
-                "193.233.112.68/32",
-                "193.233.112.67/32",
-                "46.8.158.6/32",
-                "37.230.192.51/32"
+                "193.233.112.0/24",
+                "45.155.204.0/24",
+                "46.8.158.0/24",
+                "37.230.192.0/24"
             };
 
             var rules = new List<Dictionary<string, object>>
@@ -275,8 +274,8 @@ namespace bksh2ray
                 {
                     ["hosts"] = new Dictionary<string, object>
                     {
-                        ["dns.geohide.ru"] = new[] { "193.233.112.68", "193.233.112.67" },
-                        ["geohide.ru"] = new[] { "193.233.112.68", "193.233.112.67" }
+                        ["dns.geohide.ru"] = new[] { "193.233.112.68", "193.233.112.67", "193.233.112.88", "37.230.192.51", "45.155.204.190", "46.8.158.6" },
+                        ["geohide.ru"] = new[] { "193.233.112.68", "193.233.112.67", "193.233.112.88", "37.230.192.51", "45.155.204.190", "46.8.158.6" }
                     },
                     ["queryStrategy"] = "UseIPv4",
                     ["servers"] = new object[]
@@ -414,10 +413,10 @@ namespace bksh2ray
                 "169.254.0.0/16",
                 "217.65.83.0/24",
                 "109.202.29.0/24",
-                "193.233.112.68/32",
-                "193.233.112.67/32",
-                "46.8.158.6/32",
-                "37.230.192.51/32"
+                "193.233.112.0/24",
+                "45.155.204.0/24",
+                "46.8.158.0/24",
+                "37.230.192.0/24"
             };
 
             var routeExcludeAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -429,10 +428,10 @@ namespace bksh2ray
                 "169.254.0.0/16",
                 "217.65.83.0/24",
                 "109.202.29.0/24",
-                "193.233.112.68/32",
-                "193.233.112.67/32",
-                "46.8.158.6/32",
-                "37.230.192.51/32"
+                "193.233.112.0/24",
+                "45.155.204.0/24",
+                "46.8.158.0/24",
+                "37.230.192.0/24"
             };
 
             if (config.Servers != null)
@@ -482,8 +481,7 @@ namespace bksh2ray
                 ["log"] = new Dictionary<string, object>
                 {
                     ["disabled"] = false,
-                    ["level"] = "info",
-                    ["output"] = singBoxLogFile,
+                    ["level"] = "warn",
                     ["timestamp"] = true
                 },
                 ["dns"] = new Dictionary<string, object>
@@ -531,6 +529,7 @@ namespace bksh2ray
                         ["dns_mode"] = "hijack",
                         ["auto_route"] = true,
                         ["strict_route"] = false,
+                        ["stack"] = "mixed",
                         ["endpoint_independent_nat"] = true,
                         ["route_exclude_address"] = routeExcludeAddresses.ToArray()
                     }
@@ -743,13 +742,28 @@ namespace bksh2ray
             {
                 if (attempt > 1)
                 {
-                    LogReceived?.Invoke("[TUN] Ожидание освобождения сетевого адаптера драйвером Wintun...");
-                    KillOrphanProcesses();
-                    Thread.Sleep(2000);
+                    LogReceived?.Invoke("[TUN] Повторная попытка запуска адаптера...");
+                    try
+                    {
+                        if (_singBoxProcess != null && !_singBoxProcess.HasExited)
+                        {
+                            _singBoxProcess.Kill();
+                            _singBoxProcess.WaitForExit(1000);
+                        }
+                    }
+                    catch { }
+                    Thread.Sleep(1500);
                 }
-                else
+
+                // Verify Xray backend is still running; restart if needed
+                if (_process == null || _process.HasExited)
                 {
-                    Thread.Sleep(1000);
+                    LogReceived?.Invoke("[TUN] Перезапуск Xray backend...");
+                    try { _process?.Kill(); } catch { }
+                    _process = Process.Start(xrayStartInfo);
+                    _process?.BeginOutputReadLine();
+                    _process?.BeginErrorReadLine();
+                    Thread.Sleep(500);
                 }
 
                 try
@@ -757,18 +771,14 @@ namespace bksh2ray
                     _singBoxProcess = new Process { StartInfo = sbStartInfo, EnableRaisingEvents = true };
                     _singBoxProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
                     _singBoxProcess.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
-                    _singBoxProcess.Exited += (s, e) =>
-                    {
-                        Stop();
-                    };
 
                     _singBoxProcess.Start();
                     _singBoxProcess.BeginOutputReadLine();
                     _singBoxProcess.BeginErrorReadLine();
 
-                    // Check if it stays alive or immediately crashes due to Wintun lock
+                    // Check if it stays alive
                     bool earlyCrash = false;
-                    for (int check = 0; check < 12; check++)
+                    for (int check = 0; check < 20; check++)
                     {
                         if (_singBoxProcess.HasExited)
                         {
@@ -781,6 +791,10 @@ namespace bksh2ray
                     if (!earlyCrash)
                     {
                         startedSuccessfully = true;
+                        _singBoxProcess.Exited += (s, e) =>
+                        {
+                            Stop();
+                        };
                         break;
                     }
                 }
@@ -793,12 +807,8 @@ namespace bksh2ray
             if (!startedSuccessfully)
             {
                 Stop();
-                throw new InvalidOperationException("Не удалось инициализировать виртуальный адаптер TUN (таймаут драйвера Wintun). Попробуйте еще раз через несколько секунд.");
+                throw new InvalidOperationException("Не удалось инициализировать виртуальный адаптер TUN. Попробуйте еще раз через несколько секунд.");
             }
-
-            // Start tailing singbox.log for real-time TUN events
-            _tunLogCts = new CancellationTokenSource();
-            StartTunLogReader(Path.Combine(_appDir, "singbox.log"), _tunLogCts.Token);
 
             // Disable system proxy (transparent TUN routing)
             SystemProxy.SetProxy(false);
@@ -812,53 +822,9 @@ namespace bksh2ray
             return true;
         }
 
-        private void StartTunLogReader(string logPath, CancellationToken token)
-        {
-            _ = Task.Run(async () =>
-            {
-                long lastPos = 0;
-                if (File.Exists(logPath))
-                {
-                    try { lastPos = new FileInfo(logPath).Length; } catch { }
-                }
-
-                while (!token.IsCancellationRequested)
-                {
-                    try
-                    {
-                        if (File.Exists(logPath))
-                        {
-                            using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                            if (fs.Length < lastPos) lastPos = 0;
-                            if (fs.Length > lastPos)
-                            {
-                                fs.Seek(lastPos, SeekOrigin.Begin);
-                                using var reader = new StreamReader(fs, System.Text.Encoding.UTF8);
-                                string? line;
-                                while ((line = await reader.ReadLineAsync()) != null)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(line))
-                                    {
-                                        LogReceived?.Invoke("[TUN] " + line);
-                                    }
-                                }
-                                lastPos = fs.Position;
-                            }
-                        }
-                    }
-                    catch { }
-
-                    await Task.Delay(300, token);
-                }
-            }, token);
-        }
-
         public void Stop()
         {
             SystemProxy.SetProxy(false);
-
-            _tunLogCts?.Cancel();
-            _tunLogCts = null;
 
             _statsCts?.Cancel();
             _statsCts = null;
@@ -924,8 +890,13 @@ namespace bksh2ray
                     using var p = Process.Start(psi);
                     if (p != null)
                     {
-                        var output = await p.StandardOutput.ReadToEndAsync();
-                        await p.WaitForExitAsync(token);
+                        using var cts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                        cts.CancelAfter(1500);
+
+                        var outputTask = p.StandardOutput.ReadToEndAsync();
+                        var exitTask = p.WaitForExitAsync(cts.Token);
+                        await Task.WhenAll(outputTask, exitTask);
+                        var output = outputTask.Result;
 
                         if (!string.IsNullOrEmpty(output))
                         {

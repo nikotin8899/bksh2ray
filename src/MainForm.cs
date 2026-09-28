@@ -20,6 +20,8 @@ namespace bksh2ray
 
         private readonly WebView2 _webView;
         private readonly NotifyIcon _trayIcon;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _logQueue = new();
+        private readonly System.Windows.Forms.Timer _logFlushTimer;
         private bool _reallyQuit = false;
 
         public MainForm()
@@ -80,15 +82,25 @@ namespace bksh2ray
             // Event handlers
             _xrayMgr.LogReceived += (line) =>
             {
-                if (IsHandleCreated && !IsDisposed)
+                _logQueue.Enqueue(line);
+            };
+
+            _logFlushTimer = new System.Windows.Forms.Timer { Interval = 150 };
+            _logFlushTimer.Tick += (s, e) =>
+            {
+                if (!IsHandleCreated || IsDisposed || _webView.CoreWebView2 == null) return;
+                var batch = new List<string>();
+                while (_logQueue.TryDequeue(out var logLine) && batch.Count < 40)
                 {
-                    BeginInvoke(() =>
-                    {
-                        var json = JsonSerializer.Serialize(line);
-                        _webView.CoreWebView2?.ExecuteScriptAsync($"window.addLog && window.addLog({json});");
-                    });
+                    batch.Add(logLine);
+                }
+                if (batch.Count > 0)
+                {
+                    var json = JsonSerializer.Serialize(batch);
+                    _webView.CoreWebView2?.ExecuteScriptAsync($"window.addLogs && window.addLogs({json});");
                 }
             };
+            _logFlushTimer.Start();
 
             _xrayMgr.SpeedUpdated += (downBps, upBps, currDown, currUp) =>
             {
@@ -133,7 +145,7 @@ namespace bksh2ray
         {
             try
             {
-                XrayManager.KillOrphanProcesses();
+                await Task.Run(XrayManager.KillOrphanProcesses);
                 var env = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(_appDir, "cache"));
                 await _webView.EnsureCoreWebView2Async(env);
 
@@ -248,7 +260,7 @@ namespace bksh2ray
                             _configMgr.Save();
                             if (_xrayMgr.IsRunning)
                             {
-                                _xrayMgr.RestartIfRunning(_configMgr.Config);
+                                await Task.Run(() => _xrayMgr.RestartIfRunning(_configMgr.Config));
                             }
                             result = new { success = true, is_running = _xrayMgr.IsRunning };
                         }
@@ -370,7 +382,7 @@ namespace bksh2ray
                     case "start_proxy":
                         try
                         {
-                            _xrayMgr.Start(_configMgr.Config);
+                            await Task.Run(() => _xrayMgr.Start(_configMgr.Config));
                             _webView.CoreWebView2?.ExecuteScriptAsync($"window.updateActivePorts && window.updateActivePorts({_xrayMgr.HttpPort}, {_xrayMgr.SocksPort});");
                             result = new { success = true };
                         }
@@ -381,7 +393,7 @@ namespace bksh2ray
                         break;
 
                     case "stop_proxy":
-                        _xrayMgr.Stop();
+                        await Task.Run(() => _xrayMgr.Stop());
                         result = new { success = true };
                         break;
 
@@ -542,6 +554,7 @@ namespace bksh2ray
         private void ExitApplication()
         {
             _reallyQuit = true;
+            try { _logFlushTimer?.Stop(); _logFlushTimer?.Dispose(); } catch { }
             try { _xrayMgr.Stop(); } catch { }
             try
             {
