@@ -41,6 +41,9 @@ namespace bksh2ray
 
         [JsonPropertyName("type")]
         public string Type { get; set; } = "tcp";
+
+        [JsonPropertyName("total_bytes")]
+        public long TotalBytes { get; set; } = 0;
     }
 
     public class AppConfig

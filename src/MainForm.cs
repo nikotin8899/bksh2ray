@@ -95,12 +95,32 @@ namespace bksh2ray
             };
             _logFlushTimer.Start();
 
+            long lastTotalTraffic = 0;
+            DateTime lastTrafficSave = DateTime.UtcNow;
+
             _xrayMgr.SpeedUpdated += (downBps, upBps, currDown, currUp) =>
             {
                 if (IsHandleCreated && !IsDisposed)
                 {
                     BeginInvoke(() =>
                     {
+                        var cfg = _configMgr.Config;
+                        long currentSession = currDown + currUp;
+                        if (cfg.ActiveServerIndex >= 0 && cfg.ActiveServerIndex < cfg.Servers.Count)
+                        {
+                            var srv = cfg.Servers[cfg.ActiveServerIndex];
+                            long delta = currentSession - lastTotalTraffic;
+                            if (delta > 0)
+                            {
+                                srv.TotalBytes += delta;
+                                lastTotalTraffic = currentSession;
+                                if ((DateTime.UtcNow - lastTrafficSave).TotalSeconds >= 10)
+                                {
+                                    lastTrafficSave = DateTime.UtcNow;
+                                    _configMgr.Save();
+                                }
+                            }
+                        }
                         _webView.CoreWebView2?.ExecuteScriptAsync($"window.updateSpeed && window.updateSpeed({downBps.ToString(System.Globalization.CultureInfo.InvariantCulture)}, {upBps.ToString(System.Globalization.CultureInfo.InvariantCulture)}, {currDown}, {currUp});");
                     });
                 }
@@ -112,6 +132,11 @@ namespace bksh2ray
                 {
                     BeginInvoke(() =>
                     {
+                        if (!_xrayMgr.IsRunning)
+                        {
+                            lastTotalTraffic = 0;
+                            _configMgr.Save();
+                        }
                         _webView.CoreWebView2?.ExecuteScriptAsync("window.updateConnectionState && window.updateConnectionState();");
                     });
                 }
@@ -144,13 +169,13 @@ namespace bksh2ray
                 }
                 await Task.Run(XrayManager.KillOrphanProcesses);
                 var env = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(_appDir, "cache"));
-                await _webView.EnsureCoreWebView2Async(env);
                 if (_webView != null)
                 {
+                    await _webView.EnsureCoreWebView2Async(env);
                     _webView.Bounds = ClientRectangle;
                 }
 
-                if (_webView.CoreWebView2 != null)
+                if (_webView?.CoreWebView2 != null)
                 {
                     // Disable default context menu & status bar
                     _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;

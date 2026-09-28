@@ -243,6 +243,7 @@ namespace bksh2ray
                         "geosite:youtube",
                         "geosite:openai",
                         "geosite:anthropic",
+                        "geosite:github",
                         "domain:googleapis.com",
                         "domain:google.com",
                         "domain:gstatic.com",
@@ -253,12 +254,23 @@ namespace bksh2ray
                         "domain:gvt1.com",
                         "domain:gvt2.com",
                         "domain:gemini.google.com",
+                        "domain:cloudaicompanion.googleapis.com",
+                        "domain:deepmind.google",
+                        "domain:deepmind.com",
+                        "domain:cloud.google.com",
+                        "domain:googlecloud.com",
+                        "domain:googleusercontent.com",
+                        "domain:1e100.net",
+                        "domain:g.co",
+                        "domain:goog",
                         "domain:openai.com",
                         "domain:anthropic.com",
                         "domain:claude.ai",
                         "domain:cursor.sh",
+                        "domain:cursor.com",
                         "domain:github.com",
-                        "domain:githubusercontent.com"
+                        "domain:githubusercontent.com",
+                        "domain:githubassets.com"
                     }
                 },
                 // 1. Corporate, LAN & Private IPs, GeoHide IPs -> Direct
@@ -338,21 +350,19 @@ namespace bksh2ray
                         {
                             ["address"] = "193.233.112.68",
                             ["port"] = 53,
+                            ["domains"] = directDomains,
                             ["queryStrategy"] = "UseIPv4"
                         },
                         new Dictionary<string, object>
                         {
-                            ["address"] = "https://dns.geohide.ru/dns-query",
+                            ["address"] = "8.8.8.8",
+                            ["port"] = 53,
                             ["queryStrategy"] = "UseIPv4"
                         },
                         new Dictionary<string, object>
                         {
-                            ["address"] = "https://geohide.ru/dns-query",
-                            ["queryStrategy"] = "UseIPv4"
-                        },
-                        new Dictionary<string, object>
-                        {
-                            ["address"] = "tcp://193.233.112.68:53",
+                            ["address"] = "1.1.1.1",
+                            ["port"] = 53,
                             ["queryStrategy"] = "UseIPv4"
                         }
                     }
@@ -544,22 +554,18 @@ namespace bksh2ray
                         },
                         new Dictionary<string, object>
                         {
+                            ["tag"] = "dns-remote",
+                            ["type"] = "tcp",
+                            ["server"] = "1.1.1.1",
+                            ["server_port"] = 53,
+                            ["detour"] = "proxy"
+                        },
+                        new Dictionary<string, object>
+                        {
                             ["tag"] = "dns-geohide-udp",
                             ["type"] = "udp",
                             ["server"] = "193.233.112.68",
                             ["server_port"] = 53
-                        },
-                        new Dictionary<string, object>
-                        {
-                            ["tag"] = "dns-geohide",
-                            ["type"] = "https",
-                            ["server"] = "193.233.112.68",
-                            ["server_port"] = 443,
-                            ["tls"] = new Dictionary<string, object>
-                            {
-                                ["enabled"] = true,
-                                ["server_name"] = "dns.geohide.ru"
-                            }
                         }
                     },
                     ["rules"] = new object[]
@@ -570,7 +576,7 @@ namespace bksh2ray
                             ["server"] = "dns-direct"
                         }
                     },
-                    ["final"] = "dns-geohide-udp",
+                    ["final"] = "dns-remote",
                     ["strategy"] = "ipv4_only"
                 },
                 ["inbounds"] = new object[]
@@ -580,8 +586,8 @@ namespace bksh2ray
                         ["type"] = "tun",
                         ["tag"] = "tun-in",
                         ["interface_name"] = interfaceName,
-                        ["address"] = new[] { tunAddress },
-                        ["dns_address"] = new[] { tunDns },
+                        ["address"] = new[] { tunAddress, "fdfe:dcba:9876::1/126" },
+                        ["dns_address"] = new[] { tunDns, "fdfe:dcba:9876::2" },
                         ["dns_mode"] = "hijack",
                         ["auto_route"] = true,
                         ["strict_route"] = false,
@@ -622,6 +628,38 @@ namespace bksh2ray
                             ["port"] = 443,
                             ["network"] = "udp",
                             ["outbound"] = "block"
+                        },
+                        // Block IPv6 to prevent real IPv6 location leak outside TUN
+                        new Dictionary<string, object>
+                        {
+                            ["ip_cidr"] = new[] { "::/0" },
+                            ["outbound"] = "block"
+                        },
+                        // Explicit proxy domains (Google, Gemini, Cloud AI Companion, OpenAI, Claude, Cursor, GitHub)
+                        new Dictionary<string, object>
+                        {
+                            ["domain_suffix"] = new[]
+                            {
+                                "google.com",
+                                "googleapis.com",
+                                "gstatic.com",
+                                "googlevideo.com",
+                                "youtube.com",
+                                "ytimg.com",
+                                "gemini.google.com",
+                                "googleusercontent.com",
+                                "1e100.net",
+                                "g.co",
+                                "goog",
+                                "openai.com",
+                                "anthropic.com",
+                                "claude.ai",
+                                "cursor.sh",
+                                "cursor.com",
+                                "github.com",
+                                "githubusercontent.com"
+                            },
+                            ["outbound"] = "proxy"
                         },
                         new Dictionary<string, object>
                         {

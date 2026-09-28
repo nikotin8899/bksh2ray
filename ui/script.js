@@ -615,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
         serverList.innerHTML = '';
         if (servers.length === 0) {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td colspan="6" style="text-align:center; padding: 24px; color: #94a3b8;">
+            tr.innerHTML = `<td colspan="7" style="text-align:center; padding: 24px; color: #94a3b8;">
                 Список серверов пуст. Нажмите «Вставить из буфера», чтобы добавить сервер.
             </td>`;
             serverList.appendChild(tr);
@@ -634,6 +634,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${srv.server}</td>
                 <td>${srv.server_port}</td>
                 <td><span class="badge-sec">${srv.security || 'none'}</span></td>
+                <td><span class="badge-traffic" id="server-traffic-${idx}">${formatBytes(srv.total_bytes || 0)}</span></td>
             `;
             
             // Left click: select server, and if VPN is running, switch instantly on the fly!
@@ -711,6 +712,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 speedIcon.classList.add('active');
             } else {
                 speedIcon.classList.remove('active');
+            }
+        }
+
+        // Live update active server row traffic badge
+        if (activeIndex >= 0 && activeIndex < servers.length) {
+            const trEl = document.getElementById(`server-traffic-${activeIndex}`);
+            if (trEl) {
+                const base = servers[activeIndex].total_bytes || 0;
+                trEl.textContent = formatBytes(base + totalDown + totalUp);
             }
         }
     }
@@ -801,6 +811,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Open/Close modal
     btnOpenUpdates?.addEventListener('click', () => {
+        btnRestartApp?.classList.add('hidden');
         updateModal.classList.remove('hidden');
         checkUpdates();
     });
@@ -914,7 +925,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 btnActionHtml = `<button class="btn-comp-update" data-comp="${id}">Обновить</button>`;
             } else {
                 badgeHtml = `<span class="badge-version-status badge-ok">✔ Актуально</span>`;
-                btnActionHtml = `<button class="btn-comp-update btn-secondary" style="font-size:0.75rem; padding: 5px 10px;" data-comp="${id}">Переустановить</button>`;
+                btnActionHtml = '';
             }
 
             card.innerHTML = `
@@ -950,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="comp-progress-bar-bg">
                         <div class="comp-progress-bar-fill" id="progress-fill-${id}"></div>
                     </div>
-                    <div class="comp-progress-text" id="progress-text-${id}">Подготовка...</div>
+                    <div class="comp-progress-text" id="progress-text-${id}"></div>
                 </div>
             `;
 
@@ -978,6 +989,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (progressBox) progressBox.classList.remove('hidden');
         if (progressFill) progressFill.style.width = '5%';
+        if (progressText) progressText.textContent = 'Подготовка...';
         if (progressText) progressText.textContent = 'Инициализация загрузки...';
 
         try {
