@@ -666,7 +666,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (statusModeInfo) {
             if (currentMode === 'tun') {
-                statusModeInfo.textContent = 'Режим: TUN (bksh2ray_tun)';
+                statusModeInfo.textContent = 'Режим: TUN (singbox_tun)';
             } else {
                 statusModeInfo.textContent = '127.0.0.1:10809 (SOCKS5: 10808)';
             }

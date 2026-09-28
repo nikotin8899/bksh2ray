@@ -121,6 +121,7 @@ namespace bksh2ray
         {
             try
             {
+                XrayManager.KillOrphanProcesses();
                 var env = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(_appDir, "cache"));
                 await _webView.EnsureCoreWebView2Async(env);
 

@@ -410,7 +410,7 @@ namespace bksh2ray
                 ["log"] = new Dictionary<string, object>
                 {
                     ["disabled"] = false,
-                    ["level"] = "warn",
+                    ["level"] = "info",
                     ["output"] = singBoxLogFile,
                     ["timestamp"] = true
                 },
@@ -444,7 +444,8 @@ namespace bksh2ray
                             ["server"] = "dns-direct"
                         }
                     },
-                    ["final"] = "dns-geohide"
+                    ["final"] = "dns-geohide",
+                    ["strategy"] = "ipv4_only"
                 },
                 ["inbounds"] = new object[]
                 {
@@ -452,11 +453,12 @@ namespace bksh2ray
                     {
                         ["type"] = "tun",
                         ["tag"] = "tun-in",
-                        ["interface_name"] = "bksh2ray_tun",
-                        ["address"] = new[] { "172.19.0.1/30" },
+                        ["interface_name"] = "singbox_tun",
+                        ["address"] = new[] { "172.18.0.1/30" },
+                        ["dns_address"] = new[] { "172.18.0.2" },
+                        ["dns_mode"] = "hijack",
                         ["auto_route"] = true,
-                        ["strict_route"] = false,
-                        ["stack"] = "mixed"
+                        ["strict_route"] = false
                     }
                 },
                 ["outbounds"] = new object[]
@@ -532,10 +534,32 @@ namespace bksh2ray
             }
         }
 
+        public static void KillOrphanProcesses()
+        {
+            foreach (var name in new[] { "sing-box", "xray" })
+            {
+                try
+                {
+                    foreach (var proc in Process.GetProcessesByName(name))
+                    {
+                        try
+                        {
+                            proc.Kill();
+                            proc.WaitForExit(1000);
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+        }
+
         private bool StartProxy(AppConfig config)
         {
             if (!File.Exists(_xrayExe))
                 throw new FileNotFoundException($"xray.exe не найден в папке bin: {_xrayExe}");
+
+            KillOrphanProcesses();
 
             GenerateConfig(config);
 
@@ -580,6 +604,31 @@ namespace bksh2ray
             if (!File.Exists(_xrayExe))
                 throw new FileNotFoundException($"xray.exe не найден в папке bin: {_xrayExe}");
 
+            // Ensure elevation for TUN mode virtual adapter creation
+            if (!IsAdministrator())
+            {
+                var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(_appDir, "bksh2ray.exe");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exe,
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    WorkingDirectory = _appDir
+                };
+                try
+                {
+                    Process.Start(psi);
+                    Environment.Exit(0);
+                    return false;
+                }
+                catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+                {
+                    throw new InvalidOperationException("Для включения режима TUN требуются права администратора (UAC был отклонён).");
+                }
+            }
+
+            KillOrphanProcesses();
+
             // 1. Generate Xray config and start Xray backend to handle VLESS and GeoHide DNS
             GenerateConfig(config);
 
@@ -607,50 +656,34 @@ namespace bksh2ray
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
 
-            // 2. Generate Sing-box TUN config (inbound: tun bksh2ray_tun, outbound: socks5 -> 127.0.0.1:SocksPort)
+            // 2. Generate Sing-box TUN config (inbound: tun singbox_tun, outbound: socks5 -> 127.0.0.1:SocksPort)
             GenerateSingBoxConfig(config);
 
-            bool isElevated = IsAdministrator();
             var sbStartInfo = new ProcessStartInfo
             {
                 FileName = _singBoxExe,
                 Arguments = $"run -c \"{_singBoxConfigFile}\"",
                 WorkingDirectory = _appDir,
                 CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
+                WindowStyle = ProcessWindowStyle.Hidden,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
-
-            if (!isElevated)
-            {
-                sbStartInfo.UseShellExecute = true;
-                sbStartInfo.Verb = "runas";
-            }
-            else
-            {
-                sbStartInfo.UseShellExecute = false;
-                sbStartInfo.RedirectStandardOutput = true;
-                sbStartInfo.RedirectStandardError = true;
-            }
 
             try
             {
                 _singBoxProcess = new Process { StartInfo = sbStartInfo, EnableRaisingEvents = true };
-                if (isElevated)
-                {
-                    _singBoxProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
-                    _singBoxProcess.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
-                }
+                _singBoxProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
+                _singBoxProcess.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke("[TUN] " + e.Data); };
                 _singBoxProcess.Exited += (s, e) =>
                 {
                     Stop();
                 };
 
                 _singBoxProcess.Start();
-                if (isElevated)
-                {
-                    _singBoxProcess.BeginOutputReadLine();
-                    _singBoxProcess.BeginErrorReadLine();
-                }
+                _singBoxProcess.BeginOutputReadLine();
+                _singBoxProcess.BeginErrorReadLine();
 
                 // Start tailing singbox.log for real-time TUN events
                 _tunLogCts = new CancellationTokenSource();
@@ -663,14 +696,9 @@ namespace bksh2ray
                 _statsCts = new CancellationTokenSource();
                 _ = RunStatsWorkerAsync(_statsCts.Token);
 
-                LogReceived?.Invoke("[TUN] Адаптер bksh2ray_tun запущен, трафик маршрутизируется через VLESS");
+                LogReceived?.Invoke("[TUN] Адаптер singbox_tun запущен, трафик маршрутизируется через VLESS");
                 StateChanged?.Invoke();
                 return true;
-            }
-            catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
-            {
-                Stop();
-                throw new InvalidOperationException("Для включения режима TUN требуются права администратора (UAC был отклонён).");
             }
             catch
             {
@@ -751,6 +779,8 @@ namespace bksh2ray
                 catch { }
             }
             _process = null;
+
+            KillOrphanProcesses();
 
             StateChanged?.Invoke();
         }
