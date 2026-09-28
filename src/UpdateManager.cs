@@ -123,57 +123,126 @@ namespace bksh2ray
 
             try
             {
-                // 1. First check if a release tag exists
-                using var clientNoRedirect = CreateHttpClient(allowAutoRedirect: false, timeoutSec: 15);
-                var releaseCheckUrl = $"https://github.com/{AppRepoOwner}/{AppRepoName}/releases/latest";
-                var resp = await clientNoRedirect.GetAsync(releaseCheckUrl);
+                using var client = CreateHttpClient(timeoutSec: 15);
+                string remoteVersion = "";
+                string downloadUrl = "";
 
-                string? tag = null;
-                if (resp.StatusCode == System.Net.HttpStatusCode.Found || resp.StatusCode == System.Net.HttpStatusCode.MovedPermanently)
+                // 1. Check via GitHub Releases API (/releases)
+                try
                 {
-                    var loc = resp.Headers.Location?.ToString() ?? "";
-                    if (loc.Contains("/tag/"))
+                    var relApiUrl = $"https://api.github.com/repos/{AppRepoOwner}/{AppRepoName}/releases";
+                    var relResp = await client.GetAsync(relApiUrl);
+                    if (relResp.IsSuccessStatusCode)
                     {
-                        tag = loc.Substring(loc.LastIndexOf("/tag/") + 5).Trim();
+                        var relJson = await relResp.Content.ReadAsStringAsync();
+                        using var relDoc = JsonDocument.Parse(relJson);
+                        if (relDoc.RootElement.ValueKind == JsonValueKind.Array && relDoc.RootElement.GetArrayLength() > 0)
+                        {
+                            var firstRel = relDoc.RootElement[0];
+                            var tag = firstRel.GetProperty("tag_name").GetString();
+                            if (!string.IsNullOrEmpty(tag))
+                            {
+                                remoteVersion = tag.Trim();
+                                downloadUrl = $"https://github.com/{AppRepoOwner}/{AppRepoName}/releases/download/{remoteVersion}/bksh2ray.exe";
+                            }
+                        }
                     }
                 }
+                catch { }
 
-                if (!string.IsNullOrEmpty(tag))
+                // 2. Check via GitHub Tags API (/tags)
+                if (string.IsNullOrEmpty(remoteVersion))
                 {
-                    info.LatestVersion = tag;
-                    info.HasUpdate = !string.Equals(tag, CurrentAppVersion, StringComparison.OrdinalIgnoreCase);
-                    info.DownloadUrl = $"https://github.com/{AppRepoOwner}/{AppRepoName}/releases/download/{tag}/bksh2ray.exe";
-                    return info;
-                }
-
-                // 2. Check latest commit via GitHub API
-                using var client = CreateHttpClient(timeoutSec: 15);
-                var apiUrl = $"https://api.github.com/repos/{AppRepoOwner}/{AppRepoName}/commits/main";
-                var commitResp = await client.GetAsync(apiUrl);
-
-                if (commitResp.IsSuccessStatusCode)
-                {
-                    var json = await commitResp.Content.ReadAsStringAsync();
-                    using var doc = JsonDocument.Parse(json);
-                    var sha = doc.RootElement.GetProperty("sha").GetString() ?? "";
-                    var shortSha = sha.Length > 7 ? sha.Substring(0, 7) : sha;
-                    
-                    var commitDateStr = "";
                     try
                     {
-                        commitDateStr = doc.RootElement.GetProperty("commit").GetProperty("author").GetProperty("date").GetString() ?? "";
+                        var tagsUrl = $"https://api.github.com/repos/{AppRepoOwner}/{AppRepoName}/tags";
+                        var tagsResp = await client.GetAsync(tagsUrl);
+                        if (tagsResp.IsSuccessStatusCode)
+                        {
+                            var tagsJson = await tagsResp.Content.ReadAsStringAsync();
+                            using var tagsDoc = JsonDocument.Parse(tagsJson);
+                            if (tagsDoc.RootElement.ValueKind == JsonValueKind.Array && tagsDoc.RootElement.GetArrayLength() > 0)
+                            {
+                                var tag = tagsDoc.RootElement[0].GetProperty("name").GetString();
+                                if (!string.IsNullOrEmpty(tag))
+                                {
+                                    remoteVersion = tag.Trim();
+                                    downloadUrl = $"https://github.com/{AppRepoOwner}/{AppRepoName}/releases/download/{remoteVersion}/bksh2ray.exe";
+                                }
+                            }
+                        }
                     }
                     catch { }
+                }
 
-                    string dateLabel = "";
-                    if (DateTime.TryParse(commitDateStr, out var dt))
+                // 3. Fallback: Parse remote source file on main branch (UpdateManager.cs or bksh2ray.csproj)
+                if (string.IsNullOrEmpty(remoteVersion))
+                {
+                    try
                     {
-                        dateLabel = $" ({dt:dd.MM.yyyy})";
+                        var rawUrls = new[]
+                        {
+                            $"https://raw.githubusercontent.com/{AppRepoOwner}/{AppRepoName}/main/src/UpdateManager.cs",
+                            $"https://github.com/{AppRepoOwner}/{AppRepoName}/raw/main/src/UpdateManager.cs"
+                        };
+                        foreach (var url in rawUrls)
+                        {
+                            try
+                            {
+                                var content = await client.GetStringAsync(url);
+                                var m = System.Text.RegularExpressions.Regex.Match(content, @"CurrentAppVersion\s*=\s*""([^""]+)""");
+                                if (m.Success && !string.IsNullOrWhiteSpace(m.Groups[1].Value))
+                                {
+                                    remoteVersion = m.Groups[1].Value.Trim();
+                                    break;
+                                }
+                            }
+                            catch { }
+                        }
                     }
+                    catch { }
+                }
 
-                    info.LatestVersion = $"{CurrentAppVersion}-{shortSha}{dateLabel}";
+                // 4. Fallback: Parse latest commit info on main
+                string shortSha = "";
+                try
+                {
+                    var apiUrl = $"https://api.github.com/repos/{AppRepoOwner}/{AppRepoName}/commits/main";
+                    var commitResp = await client.GetAsync(apiUrl);
+                    if (commitResp.IsSuccessStatusCode)
+                    {
+                        var json = await commitResp.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(json);
+                        var sha = doc.RootElement.GetProperty("sha").GetString() ?? "";
+                        shortSha = sha.Length > 7 ? sha.Substring(0, 7) : sha;
 
-                    // Check file size of local vs remote bksh2ray.exe
+                        if (string.IsNullOrEmpty(remoteVersion))
+                        {
+                            var commitMsg = doc.RootElement.GetProperty("commit").GetProperty("message").GetString() ?? "";
+                            var m = System.Text.RegularExpressions.Regex.Match(commitMsg, @"v?\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                            if (m.Success)
+                            {
+                                remoteVersion = m.Value.Trim();
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                // Fallback to CurrentAppVersion if remote could not be resolved
+                if (string.IsNullOrEmpty(remoteVersion))
+                {
+                    remoteVersion = CurrentAppVersion;
+                }
+
+                info.LatestVersion = remoteVersion;
+
+                // Compare version strings: e.g. "v0.1.10-beta" != "v0.1.8-beta"
+                info.HasUpdate = !string.Equals(remoteVersion, CurrentAppVersion, StringComparison.OrdinalIgnoreCase);
+
+                // If versions match string-wise, check if executable binary size changed on GitHub main
+                if (!info.HasUpdate)
+                {
                     var currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(_appDir, "bksh2ray.exe");
                     long localSize = File.Exists(currentExe) ? new FileInfo(currentExe).Length : 0;
 
@@ -183,16 +252,22 @@ namespace bksh2ray
                     if (headResp.IsSuccessStatusCode && headResp.Content.Headers.ContentLength.HasValue)
                     {
                         long remoteSize = headResp.Content.Headers.ContentLength.Value;
-                        // If file size or last-modified differs, or local version doesn't include current short commit
-                        info.HasUpdate = (remoteSize > 0 && Math.Abs(remoteSize - localSize) > 32);
+                        if (remoteSize > 0 && Math.Abs(remoteSize - localSize) > 32)
+                        {
+                            info.HasUpdate = true;
+                            if (!string.IsNullOrEmpty(shortSha))
+                            {
+                                info.LatestVersion = $"{remoteVersion} (сборка {shortSha})";
+                            }
+                        }
                     }
-                    else
-                    {
-                        info.HasUpdate = false;
-                    }
-
-                    info.DownloadUrl = rawHeadUrl;
                 }
+
+                if (string.IsNullOrEmpty(downloadUrl))
+                {
+                    downloadUrl = $"https://github.com/{AppRepoOwner}/{AppRepoName}/raw/main/bksh2ray.exe";
+                }
+                info.DownloadUrl = downloadUrl;
             }
             catch (Exception ex)
             {
