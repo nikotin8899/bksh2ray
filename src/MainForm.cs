@@ -37,13 +37,7 @@ namespace bksh2ray
             Height = 750;
             MinimumSize = new Size(800, 600);
             StartPosition = FormStartPosition.CenterScreen;
-
-            var args = Environment.GetCommandLineArgs();
-            bool startMaximized = _configMgr.Config.WindowMaximized || args.Any(a => a.Equals("--maximized", StringComparison.OrdinalIgnoreCase));
-            if (startMaximized)
-            {
-                WindowState = FormWindowState.Maximized;
-            }
+            WindowState = FormWindowState.Normal;
 
             // Load chicken shish application icon
             var appIcon = CreateAppIcon(_appDir);
@@ -577,20 +571,12 @@ namespace bksh2ray
             }
             catch { }
 
-            try
-            {
-                _configMgr.Config.WindowMaximized = true;
-                _configMgr.Save();
-            }
-            catch { }
-
             var currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(_appDir, "bksh2ray.exe");
             try
             {
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = currentExe,
-                    Arguments = "--maximized",
                     WorkingDirectory = _appDir,
                     UseShellExecute = true
                 });
@@ -608,22 +594,13 @@ namespace bksh2ray
         private void RestoreFromTray()
         {
             Show();
-            WindowState = _configMgr.Config.WindowMaximized ? FormWindowState.Maximized : FormWindowState.Normal;
+            WindowState = FormWindowState.Normal;
             Activate();
         }
 
         private void ExitApplication()
         {
             _reallyQuit = true;
-            try
-            {
-                if (WindowState == FormWindowState.Maximized)
-                    _configMgr.Config.WindowMaximized = true;
-                else if (WindowState == FormWindowState.Normal)
-                    _configMgr.Config.WindowMaximized = false;
-                _configMgr.Save();
-            }
-            catch { }
             try { _logFlushTimer?.Stop(); _logFlushTimer?.Dispose(); } catch { }
             try { _xrayMgr.Stop(); } catch { }
             try
@@ -643,16 +620,6 @@ namespace bksh2ray
 
         private void OnFormClosing(object? sender, FormClosingEventArgs e)
         {
-            try
-            {
-                if (WindowState == FormWindowState.Maximized)
-                    _configMgr.Config.WindowMaximized = true;
-                else if (WindowState == FormWindowState.Normal)
-                    _configMgr.Config.WindowMaximized = false;
-                _configMgr.Save();
-            }
-            catch { }
-
             if (!_reallyQuit)
             {
                 e.Cancel = true;
@@ -668,16 +635,7 @@ namespace bksh2ray
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
-            var args = Environment.GetCommandLineArgs();
-            bool shouldMaximize = _configMgr.Config.WindowMaximized || args.Any(a => a.Equals("--maximized", StringComparison.OrdinalIgnoreCase));
-            if (shouldMaximize)
-            {
-                WindowState = FormWindowState.Maximized;
-            }
-            else if (WindowState == FormWindowState.Minimized)
-            {
-                WindowState = FormWindowState.Normal;
-            }
+            WindowState = FormWindowState.Normal;
 
             Show();
             Activate();
@@ -700,15 +658,6 @@ namespace bksh2ray
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
-            if (WindowState == FormWindowState.Maximized)
-            {
-                _configMgr.Config.WindowMaximized = true;
-            }
-            else if (WindowState == FormWindowState.Normal)
-            {
-                _configMgr.Config.WindowMaximized = false;
-            }
-
             if (_webView != null)
             {
                 _webView.Bounds = ClientRectangle;

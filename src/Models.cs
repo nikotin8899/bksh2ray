@@ -65,8 +65,5 @@ namespace bksh2ray
 
         [JsonPropertyName("custom_direct_domains")]
         public List<string> CustomDirectDomains { get; set; } = new();
-
-        [JsonPropertyName("window_maximized")]
-        public bool WindowMaximized { get; set; } = false;
     }
 }

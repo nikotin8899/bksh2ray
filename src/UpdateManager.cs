@@ -28,7 +28,7 @@ namespace bksh2ray
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "v0.1.8-beta";
+        public const string CurrentAppVersion = "v0.1.9-beta";
         public const string AppRepoOwner = "nikotin8899";
         public const string AppRepoName = "bksh2ray";
 
@@ -768,18 +768,10 @@ namespace bksh2ray
             try
             {
                 try { _xrayMgr.Stop(); } catch { }
-                try
-                {
-                    _configMgr.Config.WindowMaximized = true;
-                    _configMgr.Save();
-                }
-                catch { }
-
                 var currentExe = Process.GetCurrentProcess().MainModule?.FileName ?? Path.Combine(_appDir, "bksh2ray.exe");
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = currentExe,
-                    Arguments = "--maximized",
                     WorkingDirectory = _appDir,
                     UseShellExecute = true
                 });

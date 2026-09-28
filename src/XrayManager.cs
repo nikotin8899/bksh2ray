@@ -800,7 +800,9 @@ namespace bksh2ray
                         else
                         {
                             if (ni.Name.IndexOf("singbox_tun", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                ni.Description.IndexOf("sing-tun", StringComparison.OrdinalIgnoreCase) >= 0)
+                                ni.Name.IndexOf("bksh_", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                ni.Description.IndexOf("sing-tun", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                ni.Description.IndexOf("wintun", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
                                 hasTun = true;
                                 break;
@@ -975,14 +977,14 @@ namespace bksh2ray
             _process.BeginErrorReadLine();
             Thread.Sleep(300);
 
-            // 2. Generate Sing-box TUN config with rotating adapter name and subnet to prevent Wintun NDIS teardown collision
+            // 2. Generate Sing-box TUN config with unique interface name to prevent Wintun registry collisions
             int sessionIndex = Interlocked.Increment(ref _tunSessionCounter);
-            int slot = sessionIndex % 4;
-            _currentTunInterface = $"singbox_tun_{slot}";
-            string tunIp = $"172.18.{slot * 4}.1/30";
-            string tunDns = $"172.18.{slot * 4}.2";
+            int slot = sessionIndex % 60;
+            string uniqueTag = Guid.NewGuid().ToString("N").Substring(0, 6);
+            _currentTunInterface = $"bksh_{uniqueTag}";
+            string tunIp = $"172.18.{(slot * 4) % 240 + 4}.1/30";
+            string tunDns = $"172.18.{(slot * 4) % 240 + 4}.2";
 
-            WaitForTunAdapterCleanup(_currentTunInterface, 3);
             GenerateSingBoxConfig(config, _currentTunInterface, tunIp, tunDns);
 
             var sbStartInfo = new ProcessStartInfo
@@ -1003,13 +1005,13 @@ namespace bksh2ray
             {
                 if (attempt > 1)
                 {
-                    LogReceived?.Invoke($"[TUN] Адаптер не запустился (попытка {attempt - 1}/{maxAttempts}). Принудительный перезапуск со сменой слота...");
+                    LogReceived?.Invoke($"[TUN] Ошибка инициализации адаптера (попытка {attempt - 1}/{maxAttempts}). Автоматический перезапуск профиля...");
                     try
                     {
                         if (_singBoxProcess != null && !_singBoxProcess.HasExited)
                         {
                             _singBoxProcess.Kill();
-                            _singBoxProcess.WaitForExit(800);
+                            _singBoxProcess.WaitForExit(400);
                         }
                     }
                     catch { }
@@ -1018,12 +1020,13 @@ namespace bksh2ray
                     KillOrphanProcesses();
 
                     sessionIndex = Interlocked.Increment(ref _tunSessionCounter);
-                    slot = sessionIndex % 4;
-                    _currentTunInterface = $"singbox_tun_{slot}";
-                    tunIp = $"172.18.{slot * 4}.1/30";
-                    tunDns = $"172.18.{slot * 4}.2";
+                    slot = sessionIndex % 60;
+                    uniqueTag = Guid.NewGuid().ToString("N").Substring(0, 6);
+                    _currentTunInterface = $"bksh_{uniqueTag}";
+                    tunIp = $"172.18.{(slot * 4) % 240 + 4}.1/30";
+                    tunDns = $"172.18.{(slot * 4) % 240 + 4}.2";
                     GenerateSingBoxConfig(config, _currentTunInterface, tunIp, tunDns);
-                    Thread.Sleep(200);
+                    Thread.Sleep(150);
                 }
 
                 // Verify Xray backend is still running; restart if needed
@@ -1034,77 +1037,77 @@ namespace bksh2ray
                     _process = Process.Start(xrayStartInfo);
                     _process?.BeginOutputReadLine();
                     _process?.BeginErrorReadLine();
-                    Thread.Sleep(300);
+                    Thread.Sleep(200);
                 }
 
                 try
                 {
                     var tunReadyEvent = new ManualResetEventSlim(false);
+                    bool hasFailed = false;
+
+                    void HandleLog(string? raw)
+                    {
+                        if (string.IsNullOrEmpty(raw)) return;
+                        var clean = StripAnsi(raw);
+                        LogReceived?.Invoke("[TUN] " + clean);
+
+                        // Instant error detection within 1 second!
+                        if (clean.Contains("Cannot create a file", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("Element not found", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("take too much time", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("FATAL", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("panic:", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("create adapter: failed", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("failed to open tun", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasFailed = true;
+                            tunReadyEvent.Set(); // unblock wait loop immediately!
+                            return;
+                        }
+
+                        // Success signals from sing-box
+                        if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
+                            clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase))
+                        {
+                            tunReadyEvent.Set();
+                        }
+                    }
 
                     _singBoxProcess = new Process { StartInfo = sbStartInfo, EnableRaisingEvents = true };
-                    _singBoxProcess.OutputDataReceived += (s, e) =>
-                    {
-                        if (!string.IsNullOrEmpty(e.Data))
-                        {
-                            var clean = StripAnsi(e.Data);
-                            LogReceived?.Invoke("[TUN] " + clean);
-                            if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("inbound connection", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("inbound DNS packet", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("interface created", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("router: completed", StringComparison.OrdinalIgnoreCase))
-                            {
-                                tunReadyEvent.Set();
-                            }
-                        }
-                    };
-                    _singBoxProcess.ErrorDataReceived += (s, e) =>
-                    {
-                        if (!string.IsNullOrEmpty(e.Data))
-                        {
-                            var clean = StripAnsi(e.Data);
-                            LogReceived?.Invoke("[TUN] " + clean);
-                            if (clean.Contains("started at", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("sing-box started", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("inbound connection", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("inbound DNS packet", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("interface created", StringComparison.OrdinalIgnoreCase) ||
-                                clean.Contains("router: completed", StringComparison.OrdinalIgnoreCase))
-                            {
-                                tunReadyEvent.Set();
-                            }
-                        }
-                    };
+                    _singBoxProcess.OutputDataReceived += (s, e) => HandleLog(e.Data);
+                    _singBoxProcess.ErrorDataReceived += (s, e) => HandleLog(e.Data);
 
                     _singBoxProcess.Start();
                     _singBoxProcess.BeginOutputReadLine();
                     _singBoxProcess.BeginErrorReadLine();
 
-                    // Short timeout for fast detection: poll in 100ms chunks up to 2500ms
-                    // If sing-box crashes or exits, exit wait immediately so retry happens with 0 delay!
-                    int waitTimeoutMs = (attempt == maxAttempts) ? 3500 : 2500;
+                    // Detect success or failure in at most 1.0s (normal startup is ~0.5s)
+                    // If sing-box fails or exits, unblock immediately (< 50ms)!
                     int waited = 0;
-                    while (waited < waitTimeoutMs)
+                    while (waited < 1000)
                     {
-                        if (tunReadyEvent.Wait(100)) break;
+                        if (tunReadyEvent.Wait(50)) break;
                         if (_singBoxProcess.HasExited) break;
-                        waited += 100;
+                        waited += 50;
                     }
 
-                    if (tunReadyEvent.IsSet && !_singBoxProcess.HasExited)
+                    if (tunReadyEvent.IsSet && !hasFailed && !_singBoxProcess.HasExited)
                     {
                         startedSuccessfully = true;
                         break;
                     }
-                    else if (!_singBoxProcess.HasExited)
+                    else
                     {
-                        Thread.Sleep(300);
-                        if (!_singBoxProcess.HasExited)
+                        // Failure detected within 1 second - kill immediately so it doesn't linger
+                        try
                         {
-                            startedSuccessfully = true;
-                            break;
+                            if (_singBoxProcess != null && !_singBoxProcess.HasExited)
+                            {
+                                _singBoxProcess.Kill();
+                                _singBoxProcess.WaitForExit(300);
+                            }
                         }
+                        catch { }
                     }
                 }
                 catch
@@ -1116,7 +1119,7 @@ namespace bksh2ray
             if (!startedSuccessfully)
             {
                 Stop();
-                throw new InvalidOperationException("Не удалось инициализировать виртуальный адаптер TUN. Попробуйте еще раз через несколько секунд.");
+                throw new InvalidOperationException("Не удалось инициализировать виртуальный адаптер TUN. Автоматический повтор профиля...");
             }
 
             // Hook exit handlers now that both processes are verified running
