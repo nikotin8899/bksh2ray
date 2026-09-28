@@ -211,6 +211,8 @@ namespace bksh2ray
             {
                 new() { ["type"] = "field", ["inboundTag"] = new[] { "api" }, ["outboundTag"] = "api" },
                 new() { ["type"] = "field", ["port"] = "53", ["outboundTag"] = "dns-out" },
+                // Block QUIC (UDP 443) locally so browsers immediately fall back to TCP (prevents YouTube 5s hang)
+                new() { ["type"] = "field", ["port"] = "443", ["network"] = "udp", ["outboundTag"] = "block" },
                 new() { ["type"] = "field", ["outboundTag"] = "direct", ["protocol"] = new[] { "bittorrent" } },
                 new() { ["type"] = "field", ["outboundTag"] = "block", ["domain"] = new[] { "geosite:category-ads-all" } },
                 // 1. Corporate, LAN & Private IPs, GeoHide IPs -> Direct
@@ -288,6 +290,12 @@ namespace bksh2ray
                         },
                         new Dictionary<string, object>
                         {
+                            ["address"] = "193.233.112.68",
+                            ["port"] = 53,
+                            ["queryStrategy"] = "UseIPv4"
+                        },
+                        new Dictionary<string, object>
+                        {
                             ["address"] = "https://dns.geohide.ru/dns-query",
                             ["queryStrategy"] = "UseIPv4"
                         },
@@ -299,11 +307,6 @@ namespace bksh2ray
                         new Dictionary<string, object>
                         {
                             ["address"] = "tcp://193.233.112.68:53",
-                            ["queryStrategy"] = "UseIPv4"
-                        },
-                        new Dictionary<string, object>
-                        {
-                            ["address"] = "193.233.112.68",
                             ["queryStrategy"] = "UseIPv4"
                         }
                     }
@@ -495,6 +498,13 @@ namespace bksh2ray
                         },
                         new Dictionary<string, object>
                         {
+                            ["tag"] = "dns-geohide-udp",
+                            ["type"] = "udp",
+                            ["server"] = "193.233.112.68",
+                            ["server_port"] = 53
+                        },
+                        new Dictionary<string, object>
+                        {
                             ["tag"] = "dns-geohide",
                             ["type"] = "https",
                             ["server"] = "193.233.112.68",
@@ -514,7 +524,7 @@ namespace bksh2ray
                             ["server"] = "dns-direct"
                         }
                     },
-                    ["final"] = "dns-geohide",
+                    ["final"] = "dns-geohide-udp",
                     ["strategy"] = "ipv4_only"
                 },
                 ["inbounds"] = new object[]
@@ -559,6 +569,13 @@ namespace bksh2ray
                         {
                             ["protocol"] = "dns",
                             ["action"] = "hijack-dns"
+                        },
+                        // Block QUIC (UDP 443) locally so browsers fall back to TCP immediately (prevents YouTube 5s hang)
+                        new Dictionary<string, object>
+                        {
+                            ["port"] = 443,
+                            ["network"] = "udp",
+                            ["outbound"] = "block"
                         },
                         new Dictionary<string, object>
                         {
@@ -694,6 +711,7 @@ namespace bksh2ray
             }
 
             KillOrphanProcesses();
+            Thread.Sleep(800); // Allow Windows NDIS & Wintun driver to release device handles
 
             // 1. Generate Xray config and start Xray backend to handle VLESS and GeoHide DNS
             GenerateConfig(config);
@@ -713,14 +731,11 @@ namespace bksh2ray
             _process = new Process { StartInfo = xrayStartInfo, EnableRaisingEvents = true };
             _process.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
             _process.ErrorDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) LogReceived?.Invoke(e.Data); };
-            _process.Exited += (s, e) =>
-            {
-                Stop();
-            };
 
             _process.Start();
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
+            Thread.Sleep(300);
 
             // 2. Generate Sing-box TUN config (inbound: tun singbox_tun, outbound: socks5 -> 127.0.0.1:SocksPort)
             GenerateSingBoxConfig(config);
@@ -776,9 +791,9 @@ namespace bksh2ray
                     _singBoxProcess.BeginOutputReadLine();
                     _singBoxProcess.BeginErrorReadLine();
 
-                    // Check if it stays alive
+                    // Check if it stays alive (give Wintun up to 3.5s to initialize adapter)
                     bool earlyCrash = false;
-                    for (int check = 0; check < 20; check++)
+                    for (int check = 0; check < 35; check++)
                     {
                         if (_singBoxProcess.HasExited)
                         {
@@ -791,10 +806,6 @@ namespace bksh2ray
                     if (!earlyCrash)
                     {
                         startedSuccessfully = true;
-                        _singBoxProcess.Exited += (s, e) =>
-                        {
-                            Stop();
-                        };
                         break;
                     }
                 }
@@ -809,6 +820,10 @@ namespace bksh2ray
                 Stop();
                 throw new InvalidOperationException("Не удалось инициализировать виртуальный адаптер TUN. Попробуйте еще раз через несколько секунд.");
             }
+
+            // Hook exit handlers now that both processes are verified running
+            if (_process != null) _process.Exited += (s, e) => Stop();
+            if (_singBoxProcess != null) _singBoxProcess.Exited += (s, e) => Stop();
 
             // Disable system proxy (transparent TUN routing)
             SystemProxy.SetProxy(false);

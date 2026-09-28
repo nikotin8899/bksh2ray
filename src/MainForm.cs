@@ -66,18 +66,9 @@ namespace bksh2ray
             // WebView2 control
             _webView = new WebView2
             {
-                Dock = DockStyle.Fill,
-                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+                Dock = DockStyle.Fill
             };
             Controls.Add(_webView);
-            SizeChanged += (s, e) =>
-            {
-                if (_webView != null)
-                {
-                    _webView.Bounds = ClientRectangle;
-                    _webView.Size = ClientSize;
-                }
-            };
 
             // Event handlers
             _xrayMgr.LogReceived += (line) =>
@@ -145,19 +136,29 @@ namespace bksh2ray
         {
             try
             {
+                if (_webView != null)
+                {
+                    _webView.Bounds = ClientRectangle;
+                }
                 await Task.Run(XrayManager.KillOrphanProcesses);
                 var env = await CoreWebView2Environment.CreateAsync(userDataFolder: Path.Combine(_appDir, "cache"));
                 await _webView.EnsureCoreWebView2Async(env);
+                if (_webView != null)
+                {
+                    _webView.Bounds = ClientRectangle;
+                }
 
-                // Disable default context menu & status bar
-                _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                if (_webView.CoreWebView2 != null)
+                {
+                    // Disable default context menu & status bar
+                    _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+                    _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
 
-                // Hook WebMessageReceived for native bridge
-                _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+                    // Hook WebMessageReceived for native bridge
+                    _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
 
-                // Inject transparent PyWebView API bridge
-                await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
+                    // Inject transparent PyWebView API bridge
+                    await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
                     const pendingCalls = new Map();
                     let callId = 0;
 
@@ -211,13 +212,14 @@ namespace bksh2ray
                     _webView.CoreWebView2.ExecuteScriptAsync("window.startApp && window.startApp();");
                 };
 
-                if (File.Exists(uiHtml))
-                {
-                    _webView.CoreWebView2.Navigate(new Uri(uiHtml).AbsoluteUri);
-                }
-                else
-                {
-                    _webView.CoreWebView2.NavigateToString("<h1>Ошибка: ui/index.html не найден</h1>");
+                    if (File.Exists(uiHtml))
+                    {
+                        _webView.CoreWebView2.Navigate(new Uri(uiHtml).AbsoluteUri);
+                    }
+                    else
+                    {
+                        _webView.CoreWebView2.NavigateToString("<h1>Ошибка: ui/index.html не найден</h1>");
+                    }
                 }
             }
             catch (Exception ex)
@@ -582,6 +584,16 @@ namespace bksh2ray
             {
                 _xrayMgr.Stop();
                 _trayIcon.Visible = false;
+            }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (_webView != null)
+            {
+                _webView.Bounds = ClientRectangle;
+                _webView.BringToFront();
             }
         }
 

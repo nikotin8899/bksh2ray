@@ -28,7 +28,7 @@ namespace bksh2ray
 
     public class UpdateManager
     {
-        public const string CurrentAppVersion = "v0.1.2-beta";
+        public const string CurrentAppVersion = "v0.1.3-beta";
         public const string AppRepoOwner = "nikotin8899";
         public const string AppRepoName = "bksh2ray";
 
