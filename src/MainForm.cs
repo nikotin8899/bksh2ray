@@ -424,7 +424,24 @@ namespace bksh2ray
                         }
                         catch (Exception ex)
                         {
-                            result = new { success = false, error = ex.Message };
+                            // Automatic forced retry on error as requested by user
+                            try
+                            {
+                                Console.WriteLine($"[MainForm] Start failed ({ex.Message}), performing automatic forced retry...");
+                                await Task.Delay(250);
+                                await Task.Run(() =>
+                                {
+                                    _xrayMgr.Stop();
+                                    Thread.Sleep(200);
+                                    _xrayMgr.Start(_configMgr.Config);
+                                });
+                                _webView.CoreWebView2?.ExecuteScriptAsync($"window.updateActivePorts && window.updateActivePorts({_xrayMgr.HttpPort}, {_xrayMgr.SocksPort});");
+                                result = new { success = true };
+                            }
+                            catch (Exception retryEx)
+                            {
+                                result = new { success = false, error = retryEx.Message };
+                            }
                         }
                         break;
 

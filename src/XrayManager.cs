@@ -998,20 +998,24 @@ namespace bksh2ray
             };
 
             bool startedSuccessfully = false;
-            for (int attempt = 1; attempt <= 2; attempt++)
+            const int maxAttempts = 3;
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
                 if (attempt > 1)
                 {
-                    LogReceived?.Invoke("[TUN] Повторная попытка запуска адаптера...");
+                    LogReceived?.Invoke($"[TUN] Адаптер не запустился (попытка {attempt - 1}/{maxAttempts}). Принудительный перезапуск со сменой слота...");
                     try
                     {
                         if (_singBoxProcess != null && !_singBoxProcess.HasExited)
                         {
                             _singBoxProcess.Kill();
-                            _singBoxProcess.WaitForExit(1000);
+                            _singBoxProcess.WaitForExit(800);
                         }
                     }
                     catch { }
+                    _singBoxProcess = null;
+
+                    KillOrphanProcesses();
 
                     sessionIndex = Interlocked.Increment(ref _tunSessionCounter);
                     slot = sessionIndex % 4;
@@ -1019,7 +1023,7 @@ namespace bksh2ray
                     tunIp = $"172.18.{slot * 4}.1/30";
                     tunDns = $"172.18.{slot * 4}.2";
                     GenerateSingBoxConfig(config, _currentTunInterface, tunIp, tunDns);
-                    Thread.Sleep(500);
+                    Thread.Sleep(200);
                 }
 
                 // Verify Xray backend is still running; restart if needed
@@ -1030,7 +1034,7 @@ namespace bksh2ray
                     _process = Process.Start(xrayStartInfo);
                     _process?.BeginOutputReadLine();
                     _process?.BeginErrorReadLine();
-                    Thread.Sleep(500);
+                    Thread.Sleep(300);
                 }
 
                 try
@@ -1077,16 +1081,25 @@ namespace bksh2ray
                     _singBoxProcess.BeginOutputReadLine();
                     _singBoxProcess.BeginErrorReadLine();
 
-                    // Wait up to 8 seconds for sing-box to signal TUN adapter initialization
-                    bool ready = tunReadyEvent.Wait(8000);
-                    if (ready && !_singBoxProcess.HasExited)
+                    // Short timeout for fast detection: poll in 100ms chunks up to 2500ms
+                    // If sing-box crashes or exits, exit wait immediately so retry happens with 0 delay!
+                    int waitTimeoutMs = (attempt == maxAttempts) ? 3500 : 2500;
+                    int waited = 0;
+                    while (waited < waitTimeoutMs)
+                    {
+                        if (tunReadyEvent.Wait(100)) break;
+                        if (_singBoxProcess.HasExited) break;
+                        waited += 100;
+                    }
+
+                    if (tunReadyEvent.IsSet && !_singBoxProcess.HasExited)
                     {
                         startedSuccessfully = true;
                         break;
                     }
                     else if (!_singBoxProcess.HasExited)
                     {
-                        Thread.Sleep(1000);
+                        Thread.Sleep(300);
                         if (!_singBoxProcess.HasExited)
                         {
                             startedSuccessfully = true;
@@ -1096,7 +1109,7 @@ namespace bksh2ray
                 }
                 catch
                 {
-                    if (attempt == 2) throw;
+                    if (attempt == maxAttempts) throw;
                 }
             }
 
