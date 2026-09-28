@@ -94,7 +94,7 @@ namespace bksh2ray
             return startPort + maxTries;
         }
 
-        public void GenerateConfig(AppConfig config)
+        public void GenerateConfig(AppConfig config, bool isTunMode = false)
         {
             if (config.ActiveServerIndex < 0 || config.ActiveServerIndex >= config.Servers.Count)
                 throw new InvalidOperationException("Сервер не выбран");
@@ -279,29 +279,35 @@ namespace bksh2ray
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
                     ["ip"] = directIps
-                },
-                // 2. Corporate, Local, RU, GeoHide and Custom Domains -> Direct
-                new()
+                }
+            };
+
+            if (!isTunMode)
+            {
+                // In System Proxy mode, Xray handles direct routing for Russian domains & geoip:ru
+                // In TUN mode, sing-box natively handles all direct domains using auto_detect_interface (bound to physical NIC).
+                // Public IPs must NOT be routed to 'direct' by Xray in TUN mode, because Xray's direct dials loop into the TUN adapter!
+                rules.Add(new Dictionary<string, object>
                 {
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
                     ["domain"] = directDomains
-                },
-                // 3. Direct connections to Russian IPs (direct IP traffic only)
-                new()
+                });
+                rules.Add(new Dictionary<string, object>
                 {
                     ["type"] = "field",
                     ["outboundTag"] = "direct",
                     ["ip"] = new[] { "geoip:ru" }
-                },
-                // 4. Everything else (YouTube, Gemini, blocked & foreign sites) -> Proxy (VLESS)
-                new()
-                {
-                    ["type"] = "field",
-                    ["outboundTag"] = "proxy",
-                    ["network"] = "tcp,udp"
-                }
-            };
+                });
+            }
+
+            // Everything else (or all traffic sent to proxy from sing-box) -> Proxy (VLESS)
+            rules.Add(new Dictionary<string, object>
+            {
+                ["type"] = "field",
+                ["outboundTag"] = "proxy",
+                ["network"] = "tcp,udp"
+            });
 
             var xrayConfig = new Dictionary<string, object>
             {
@@ -954,7 +960,7 @@ namespace bksh2ray
             }
 
             // 1. Generate Xray config and start Xray backend to handle VLESS and GeoHide DNS
-            GenerateConfig(config);
+            GenerateConfig(config, isTunMode: true);
 
             var xrayStartInfo = new ProcessStartInfo
             {
