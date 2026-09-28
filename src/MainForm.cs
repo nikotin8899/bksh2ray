@@ -62,8 +62,20 @@ namespace bksh2ray
             };
 
             // WebView2 control
-            _webView = new WebView2 { Dock = DockStyle.Fill };
+            _webView = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right
+            };
             Controls.Add(_webView);
+            SizeChanged += (s, e) =>
+            {
+                if (_webView != null)
+                {
+                    _webView.Bounds = ClientRectangle;
+                    _webView.Size = ClientSize;
+                }
+            };
 
             // Event handlers
             _xrayMgr.LogReceived += (line) =>
@@ -557,6 +569,16 @@ namespace bksh2ray
             {
                 _xrayMgr.Stop();
                 _trayIcon.Visible = false;
+            }
+        }
+
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (_webView != null)
+            {
+                _webView.Bounds = ClientRectangle;
+                _webView.Size = ClientSize;
             }
         }
 

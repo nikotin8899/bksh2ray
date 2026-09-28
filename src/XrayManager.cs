@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -403,6 +404,77 @@ namespace bksh2ray
                     directDomainSuffixes.Add(clean);
             }
 
+            // Exclude direct IPs, LAN subnets, DNS, and server endpoints from TUN auto_route to prevent infinite loops
+            var directIps = new List<string>
+            {
+                "127.0.0.0/8",
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "169.254.0.0/16",
+                "217.65.83.0/24",
+                "109.202.29.0/24",
+                "193.233.112.68/32",
+                "193.233.112.67/32",
+                "46.8.158.6/32",
+                "37.230.192.51/32"
+            };
+
+            var routeExcludeAddresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "127.0.0.0/8",
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "169.254.0.0/16",
+                "217.65.83.0/24",
+                "109.202.29.0/24",
+                "193.233.112.68/32",
+                "193.233.112.67/32",
+                "46.8.158.6/32",
+                "37.230.192.51/32"
+            };
+
+            if (config.Servers != null)
+            {
+                foreach (var s in config.Servers)
+                {
+                    if (string.IsNullOrWhiteSpace(s.Server)) continue;
+                    var host = s.Server.Trim();
+
+                    if (IPAddress.TryParse(host, out var ip))
+                    {
+                        if (ip.AddressFamily == AddressFamily.InterNetwork)
+                        {
+                            var cidr = $"{ip}/32";
+                            routeExcludeAddresses.Add(cidr);
+                            if (!directIps.Contains(cidr)) directIps.Add(cidr);
+                        }
+                    }
+                    else
+                    {
+                        var lowerHost = host.ToLowerInvariant();
+                        if (!directDomainSuffixes.Contains(lowerHost))
+                            directDomainSuffixes.Add(lowerHost);
+
+                        try
+                        {
+                            var ips = Dns.GetHostAddresses(host);
+                            foreach (var a in ips)
+                            {
+                                if (a.AddressFamily == AddressFamily.InterNetwork)
+                                {
+                                    var cidr = $"{a}/32";
+                                    routeExcludeAddresses.Add(cidr);
+                                    if (!directIps.Contains(cidr)) directIps.Add(cidr);
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+
             var singBoxLogFile = Path.Combine(_appDir, "singbox.log");
 
             var singBoxConfig = new Dictionary<string, object>
@@ -440,7 +512,7 @@ namespace bksh2ray
                     {
                         new Dictionary<string, object>
                         {
-                            ["domain_suffix"] = directDomainSuffixes,
+                            ["domain_suffix"] = directDomainSuffixes.ToArray(),
                             ["server"] = "dns-direct"
                         }
                     },
@@ -458,7 +530,9 @@ namespace bksh2ray
                         ["dns_address"] = new[] { "172.18.0.2" },
                         ["dns_mode"] = "hijack",
                         ["auto_route"] = true,
-                        ["strict_route"] = false
+                        ["strict_route"] = false,
+                        ["endpoint_independent_nat"] = true,
+                        ["route_exclude_address"] = routeExcludeAddresses.ToArray()
                     }
                 },
                 ["outbounds"] = new object[]
@@ -489,14 +563,7 @@ namespace bksh2ray
                         },
                         new Dictionary<string, object>
                         {
-                            ["ip_cidr"] = new[]
-                            {
-                                "127.0.0.0/8",
-                                "193.233.112.68/32",
-                                "193.233.112.67/32",
-                                "46.8.158.6/32",
-                                "37.230.192.51/32"
-                            },
+                            ["ip_cidr"] = directIps.ToArray(),
                             ["outbound"] = "direct"
                         },
                         new Dictionary<string, object>
@@ -506,7 +573,7 @@ namespace bksh2ray
                         },
                         new Dictionary<string, object>
                         {
-                            ["domain_suffix"] = directDomainSuffixes,
+                            ["domain_suffix"] = directDomainSuffixes.ToArray(),
                             ["outbound"] = "direct"
                         }
                     },
